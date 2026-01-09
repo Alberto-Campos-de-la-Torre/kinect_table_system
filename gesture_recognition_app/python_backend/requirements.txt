@@ -1,0 +1,23 @@
+# ===================================
+# HAND GESTURE RECOGNITION - REQUIREMENTS
+# ===================================
+
+# Core dependencies
+opencv-python==4.8.1.78
+mediapipe==0.10.7
+numpy==1.24.3
+
+# WebSocket server
+websockets==12.0
+
+# Optional: for better performance
+# opencv-contrib-python==4.8.1.78
+
+# ===================================
+# INSTALACIÓN
+# ===================================
+# pip install -r requirements.txt
+#
+# Para GPU (CUDA):
+# pip install opencv-python-headless  # en lugar de opencv-python
+# ===================================

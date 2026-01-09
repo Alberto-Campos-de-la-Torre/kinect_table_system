@@ -1,0 +1,24 @@
+# ===================================
+# REQUISITOS MÍNIMOS - GESTURE APP
+# ===================================
+# Compatible con Python 3.8 - 3.13
+# Solo lo esencial para reconocimiento de gestos
+# ===================================
+
+# Core para Hand Tracking
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+numpy>=1.24.0,<2.0
+
+# WebSocket Server
+websockets>=12.0
+
+# ===================================
+# INSTALACIÓN RÁPIDA
+# ===================================
+# pip install -r requirements-minimal.txt
+#
+# Para verificar:
+# python -c "import cv2, mediapipe, websockets; print('✅ Todo listo!')"
+#
+# ===================================

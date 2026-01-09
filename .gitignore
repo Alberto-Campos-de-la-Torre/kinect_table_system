@@ -1,0 +1,131 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Logs
+logs/
+*.log
+
+# Data files
+data/calibration/*.npz
+data/calibration/*.yml
+data/calibration/*.yaml
+data/objects_db/*.json
+data/objects_db/*.sqlite
+data/screenshots/
+*.csv
+*.xlsx
+
+# Models
+models/*.pt
+models/*.pth
+models/*.h5
+models/*.pkl
+models/*.onnx
+models/*.tflite
+*.task
+hand_landmarker.task
+**/hand_landmarker.task
+
+# Temporal files
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific
+*.avi
+*.mp4
+*.mov
+calibration_images/
+
+# Node modules (for Tauri frontend)
+node_modules/
+gesture_recognition_app/node_modules/
+tauri-app/node_modules/
+
+# Build outputs
+dist/
+build/
+*.exe
+*.dmg
+*.AppImage
+
+# Environment variables
+.env
+.env.local
+.env.*
+!.env.example
+
+# Configuration files with sensitive data
+config.local.py
+config.production.py
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# Tauri build artifacts
+gesture_recognition_app/src-tauri/target/
+gesture_recognition_app/dist/
+
+# Documentation builds
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# Profiling
+*.prof
+*.lprof
