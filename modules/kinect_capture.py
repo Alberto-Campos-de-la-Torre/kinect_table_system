@@ -310,6 +310,18 @@ class FreenectBackend:
         self.dev = dev_ptr
         logger.info("✅ Dispositivo abierto")
         
+        # Configurar modo de profundidad (MM = milímetros para conversión directa)
+        # Intentar usar modo MM, si falla usar 11BIT por defecto
+        try:
+            # El modo se pasa como una estructura freenect_frame_mode comprimida
+            # Para simplificar, usamos el modo por defecto y convertimos manualmente
+            # ret = self.freenect.freenect_set_depth_mode(self.dev, FREENECT_DEPTH_MM)
+            # if ret < 0:
+            #     logger.warning(f"No se pudo configurar modo depth MM, usando 11BIT")
+            logger.info("Usando modo de profundidad 11BIT (raw)")
+        except Exception as e:
+            logger.warning(f"Error configurando modo depth: {e}")
+        
         # Configurar callbacks
         self._video_cb = self.VIDEO_CB(self._video_callback)
         self._depth_cb = self.DEPTH_CB(self._depth_callback)

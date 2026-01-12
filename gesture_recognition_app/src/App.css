@@ -470,6 +470,79 @@ body {
   font-weight: 700;
 }
 
+/* Point Cloud Viewer Styles */
+.pointcloud-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pointcloud-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(10, 14, 39, 0.8);
+  border-radius: 12px;
+  border: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+.pointcloud-controls .control-label {
+  font-size: 0.8rem;
+  color: var(--gray);
+  margin-right: 0.5rem;
+}
+
+.color-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  background: rgba(0, 212, 255, 0.1);
+  border-radius: 8px;
+  color: var(--light);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.color-btn:hover {
+  background: rgba(0, 212, 255, 0.2);
+  border-color: rgba(0, 212, 255, 0.5);
+}
+
+.color-btn.active {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  border-color: var(--primary);
+  box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+}
+
+/* PointCloud Viewer Component */
+.pointcloud-viewer {
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--dark);
+  border: 2px solid rgba(0, 212, 255, 0.2);
+}
+
+.pointcloud-viewer canvas {
+  border-radius: 10px;
+}
+
+/* Stats in PointCloud Viewer */
+.pointcloud-stats {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  color: var(--primary);
+  z-index: 10;
+}
+
 /* Responsive */
 @media (max-width: 1400px) {
   .main-content {
@@ -478,5 +551,17 @@ body {
   
   .detections-panel {
     max-width: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .pointcloud-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .color-btn {
+    font-size: 0.7rem;
+    padding: 0.4rem 0.8rem;
   }
 }

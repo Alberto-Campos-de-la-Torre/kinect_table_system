@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
+import PointCloudViewer from './PointCloudViewer';
 
 const WEBSOCKET_URL = 'ws://localhost:8765';
 
@@ -13,6 +14,7 @@ function App() {
   const [fps, setFps] = useState(0);
   const [frameRgb, setFrameRgb] = useState(null);
   const [frameDepth, setFrameDepth] = useState(null);
+  const [pointcloudData, setPointcloudData] = useState(null);
   
   // Detecciones
   const [objects, setObjects] = useState([]);
@@ -22,7 +24,9 @@ function App() {
   const [config, setConfig] = useState({
     depthEnabled: true,
     objectsEnabled: true,
-    gesturesEnabled: true
+    gesturesEnabled: true,
+    pointcloudEnabled: true,
+    pointcloudColorMode: 'rgb'
   });
   
   // Estadísticas
@@ -33,7 +37,7 @@ function App() {
   });
   
   // Modo de visualización
-  const [viewMode, setViewMode] = useState('rgb'); // 'rgb', 'depth', 'split'
+  const [viewMode, setViewMode] = useState('rgb'); // 'rgb', 'depth', 'split', '3d'
   
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
@@ -69,6 +73,9 @@ function App() {
             if (data.rgb) setFrameRgb(data.rgb);
             if (data.depth) setFrameDepth(data.depth);
             
+            // Actualizar nube de puntos
+            if (data.pointcloud) setPointcloudData(data.pointcloud);
+            
             // Actualizar detecciones
             setObjects(data.objects || []);
             setHands(data.hands || []);
@@ -85,7 +92,9 @@ function App() {
               setConfig({
                 depthEnabled: data.config.depth_enabled,
                 objectsEnabled: data.config.objects_enabled,
-                gesturesEnabled: data.config.gestures_enabled
+                gesturesEnabled: data.config.gestures_enabled,
+                pointcloudEnabled: data.config.pointcloud_enabled,
+                pointcloudColorMode: data.config.pointcloud_color_mode || 'rgb'
               });
             }
           }
@@ -135,6 +144,16 @@ function App() {
   const toggleGestures = () => {
     sendMessage('toggle_gestures');
     setConfig(prev => ({ ...prev, gesturesEnabled: !prev.gesturesEnabled }));
+  };
+
+  const togglePointcloud = () => {
+    sendMessage('toggle_pointcloud');
+    setConfig(prev => ({ ...prev, pointcloudEnabled: !prev.pointcloudEnabled }));
+  };
+
+  const setPointcloudColorMode = (mode) => {
+    sendMessage('set_pointcloud_color_mode', { mode });
+    setConfig(prev => ({ ...prev, pointcloudColorMode: mode }));
   };
 
   const getGestureIcon = (gesture) => {
@@ -251,6 +270,13 @@ function App() {
             >
               🔀 Split
             </button>
+            <button 
+              className={`view-btn ${viewMode === '3d' ? 'active' : ''}`}
+              onClick={() => setViewMode('3d')}
+              disabled={!config.pointcloudEnabled}
+            >
+              ☁️ 3D
+            </button>
           </div>
 
           {/* Video Display */}
@@ -321,6 +347,42 @@ function App() {
                 </div>
               </div>
             )}
+
+            {viewMode === '3d' && (
+              <div className="video-wrapper pointcloud-wrapper">
+                <PointCloudViewer 
+                  pointcloudData={pointcloudData}
+                  width={640}
+                  height={480}
+                  backgroundColor={0x0a0e27}
+                  pointSize={0.5}
+                  showAxes={true}
+                  showGrid={true}
+                />
+                {/* Controles de color para nube de puntos */}
+                <div className="pointcloud-controls">
+                  <span className="control-label">Color:</span>
+                  <button 
+                    className={`color-btn ${config.pointcloudColorMode === 'rgb' ? 'active' : ''}`}
+                    onClick={() => setPointcloudColorMode('rgb')}
+                  >
+                    🎨 RGB
+                  </button>
+                  <button 
+                    className={`color-btn ${config.pointcloudColorMode === 'depth' ? 'active' : ''}`}
+                    onClick={() => setPointcloudColorMode('depth')}
+                  >
+                    🌈 Depth
+                  </button>
+                  <button 
+                    className={`color-btn ${config.pointcloudColorMode === 'height' ? 'active' : ''}`}
+                    onClick={() => setPointcloudColorMode('height')}
+                  >
+                    📏 Height
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
 
           {/* Stats Overlay */}
@@ -363,6 +425,12 @@ function App() {
                 onClick={toggleGestures}
               >
                 {config.gesturesEnabled ? '✅' : '❌'} Gestos
+              </button>
+              <button 
+                className={`toggle-btn ${config.pointcloudEnabled ? 'active' : ''}`}
+                onClick={togglePointcloud}
+              >
+                {config.pointcloudEnabled ? '✅' : '❌'} Nube 3D
               </button>
             </div>
           </div>

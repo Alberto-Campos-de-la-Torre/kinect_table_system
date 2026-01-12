@@ -20,11 +20,20 @@ from dataclasses import asdict
 
 # Agregar paths
 sys.path.insert(0, str(Path(__file__).parent.parent))
-print(sys.path)
+
 # Importar módulos
 from modules.kinect_capture import KinectCapture, depth_to_color
 from modules.object_detection import ObjectDetector, get_mesa_class_ids
 from modules.hand_tracking import HandTracker, HandGesture
+
+# Importar módulos de nube de puntos
+from modules.point_cloud import (
+    PointCloudGenerator, 
+    PointCloudProcessor, 
+    PointCloudStreamer,
+    PointCloud
+)
+from modules.point_cloud.point_cloud_streaming import StreamingConfig
 
 # TurboJPEG opcional
 try:
@@ -58,7 +67,10 @@ class KinectTableSystem:
         stream_quality: int = 75,
         enable_depth: bool = True,
         enable_objects: bool = True,
-        enable_gestures: bool = True
+        enable_gestures: bool = True,
+        enable_pointcloud: bool = True,  # Nube de puntos 3D
+        pointcloud_downsample: int = 4,  # Factor de reducción
+        pointcloud_max_points: int = 30000  # Máximo de puntos
     ):
         """
         Inicializar sistema
@@ -72,6 +84,9 @@ class KinectTableSystem:
             enable_depth: Habilitar streaming de profundidad
             enable_objects: Habilitar detección de objetos
             enable_gestures: Habilitar detección de gestos
+            enable_pointcloud: Habilitar streaming de nube de puntos 3D
+            pointcloud_downsample: Factor de reducción de resolución para nube de puntos
+            pointcloud_max_points: Máximo de puntos a enviar
         """
         self.host = host
         self.port = port
@@ -83,11 +98,20 @@ class KinectTableSystem:
         self.enable_depth = enable_depth
         self.enable_objects = enable_objects
         self.enable_gestures = enable_gestures
+        self.enable_pointcloud = enable_pointcloud
+        self.pointcloud_downsample = pointcloud_downsample
+        self.pointcloud_max_points = pointcloud_max_points
+        self.pointcloud_color_mode = 'rgb'  # 'rgb', 'depth', 'height'
         
         # Módulos
         self.kinect = None
         self.object_detector = None
         self.hand_tracker = None
+        
+        # Módulos de nube de puntos
+        self.pc_generator = None
+        self.pc_processor = None
+        self.pc_streamer = None
         
         # Codificador (TurboJPEG si está disponible, sino OpenCV)
         self.jpeg_encoder = None
@@ -156,6 +180,23 @@ class KinectTableSystem:
             self.hand_tracker = HandTracker(max_num_hands=2)
             logger.info("✅ Hand Tracker inicializado")
         
+        # Point Cloud Generator
+        if self.enable_pointcloud:
+            logger.info("Inicializando Point Cloud Generator...")
+            self.pc_generator = PointCloudGenerator()
+            self.pc_processor = PointCloudProcessor()
+            
+            # Configurar streamer
+            streaming_config = StreamingConfig(
+                max_points=self.pointcloud_max_points,
+                compression=True,
+                quantize_position=True,
+                include_colors=True,
+                target_fps=15
+            )
+            self.pc_streamer = PointCloudStreamer(streaming_config)
+            logger.info(f"✅ Point Cloud Generator inicializado (downsample={self.pointcloud_downsample}x)")
+        
         logger.info("=" * 60)
         print()
     
@@ -221,6 +262,17 @@ class KinectTableSystem:
                 depth_colored
             )
         
+        # Generar nube de puntos si está habilitado
+        pointcloud_data = None
+        if self.enable_pointcloud and self.pc_generator and self.pc_streamer:
+            if self.pc_streamer.should_send():
+                pointcloud_data = await asyncio.get_event_loop().run_in_executor(
+                    self.executor,
+                    self._generate_pointcloud,
+                    kinect_frame.depth,
+                    kinect_frame.rgb
+                )
+        
         # Serializar detecciones
         detections_json = [
             {
@@ -266,7 +318,7 @@ class KinectTableSystem:
         
         self.stats['frames_processed'] += 1
         
-        return {
+        result = {
             'type': 'frame',
             'timestamp': asyncio.get_event_loop().time(),
             'frame_number': kinect_frame.frame_number,
@@ -276,6 +328,50 @@ class KinectTableSystem:
             'hands': hands_json,
             'stats': self.stats
         }
+        
+        # Añadir nube de puntos si está disponible
+        if pointcloud_data is not None:
+            result['pointcloud'] = pointcloud_data
+        
+        return result
+    
+    def _generate_pointcloud(self, depth: np.ndarray, rgb: np.ndarray) -> Optional[dict]:
+        """Generar y codificar nube de puntos para streaming"""
+        try:
+            # Generar nube de puntos según el modo de color
+            if self.pointcloud_color_mode == 'rgb':
+                pc = self.pc_generator.generate_colored_pointcloud(
+                    depth, rgb, 
+                    downsample=self.pointcloud_downsample
+                )
+            elif self.pointcloud_color_mode == 'depth':
+                pc = self.pc_generator.generate_depth_colored_pointcloud(
+                    depth, 
+                    colormap='turbo',
+                    downsample=self.pointcloud_downsample
+                )
+            elif self.pointcloud_color_mode == 'height':
+                pc = self.pc_generator.generate_height_colored_pointcloud(
+                    depth,
+                    floor_height=0,
+                    colormap='viridis',
+                    downsample=self.pointcloud_downsample
+                )
+            else:
+                pc = self.pc_generator.depth_to_pointcloud(
+                    depth,
+                    downsample=self.pointcloud_downsample
+                )
+            
+            if pc.num_points == 0:
+                return None
+            
+            # Codificar para streaming
+            return self.pc_streamer.encode_binary(pc)
+            
+        except Exception as e:
+            logger.error(f"Error generando nube de puntos: {e}")
+            return None
     
     async def stream_loop(self):
         """Loop principal de streaming"""
@@ -334,6 +430,8 @@ class KinectTableSystem:
                     'depth_enabled': self.enable_depth,
                     'objects_enabled': self.enable_objects,
                     'gestures_enabled': self.enable_gestures,
+                    'pointcloud_enabled': self.enable_pointcloud,
+                    'pointcloud_color_mode': self.pointcloud_color_mode,
                     'turbo_jpeg': TURBO_AVAILABLE
                 }
             }))
@@ -382,6 +480,31 @@ class KinectTableSystem:
                 'type': 'gestures_toggled',
                 'enabled': self.enable_gestures
             }))
+        
+        elif msg_type == 'toggle_pointcloud':
+            self.enable_pointcloud = not self.enable_pointcloud
+            await websocket.send(json.dumps({
+                'type': 'pointcloud_toggled',
+                'enabled': self.enable_pointcloud
+            }))
+        
+        elif msg_type == 'set_pointcloud_color_mode':
+            mode = data.get('mode', 'rgb')
+            if mode in ['rgb', 'depth', 'height', 'none']:
+                self.pointcloud_color_mode = mode
+                await websocket.send(json.dumps({
+                    'type': 'pointcloud_color_mode_changed',
+                    'mode': self.pointcloud_color_mode
+                }))
+        
+        elif msg_type == 'set_pointcloud_downsample':
+            factor = data.get('factor', 4)
+            if 1 <= factor <= 8:
+                self.pointcloud_downsample = factor
+                await websocket.send(json.dumps({
+                    'type': 'pointcloud_downsample_changed',
+                    'factor': self.pointcloud_downsample
+                }))
     
     async def start(self):
         """Iniciar sistema"""
@@ -428,7 +551,10 @@ async def main():
         stream_quality=75,
         enable_depth=True,
         enable_objects=True,
-        enable_gestures=True
+        enable_gestures=True,
+        enable_pointcloud=True,      # Nube de puntos 3D
+        pointcloud_downsample=4,     # Reducir resolución 4x
+        pointcloud_max_points=30000  # Máximo 30k puntos
     )
     
     try:
