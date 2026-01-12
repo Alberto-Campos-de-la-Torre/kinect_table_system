@@ -10,10 +10,13 @@ opencv-contrib-python>=4.8.0  # Compatible con Python 3.11
 Pillow>=10.0.0  # Compatible con Python 3.11
 
 # Kinect Interface
-# Windows: usar PyKinect2 (descomentar la siguiente línea)
-pykinect2==0.1.0
-# Linux: freenect se instala via apt, usar python wrapper
-# freenect==0.5.0
+# Para Kinect Xbox 360 (v1) se usa libfreenect compilado
+# Requiere:
+#   - libfreenect compilado (freenect.dll)
+#   - libusb-1.0 (libusb-1.0.dll)
+# Agregar al PATH:
+#   C:\Users\mayip\libfreenect\build\lib\Release
+#   C:\libusb\VS2022\MS64\dll
 
 # Deep Learning & Object Detection
 torch>=2.1.0 --index-url https://download.pytorch.org/whl/cu121  # Con soporte CUDA 12.1 (Python 3.11)
@@ -77,14 +80,30 @@ numba>=0.58.0  # JIT compilation para acelerar código - Compatible con Python 3
 # ===================================
 # INSTALACIÓN ADICIONAL REQUERIDA
 # ===================================
-# 
+#
+# AZURE KINECT DK (RECOMENDADO):
+# ------------------------------
+# 1. Instalar Azure Kinect SDK:
+#    https://learn.microsoft.com/azure/kinect-dk/sensor-sdk-download
+# 2. pip install pyk4a
+#    O alternativamente: pip install pykinect-azure
+#
+# KINECT XBOX ONE (v2):
+# ---------------------
+# 1. Instalar Kinect for Windows SDK 2.0:
+#    https://www.microsoft.com/en-us/download/details.aspx?id=44561
+# 2. pip install git+https://github.com/Kinect/PyKinect2.git
+#
+# KINECT XBOX 360 (v1):
+# ---------------------
 # Windows:
-# - Kinect for Windows SDK 2.0
-# - pip install pykinect2
+# 1. Instalar Kinect for Windows SDK 1.8:
+#    https://www.microsoft.com/en-us/download/details.aspx?id=40278
+# 2. El sistema usará el SDK directamente
 #
 # Linux:
 # - sudo apt-get install libfreenect-dev freenect
-# - pip install freenect (desde source si es necesario)
+# - pip install freenect
 #
 # CUDA (opcional, para GPU):
 # - Instalar CUDA Toolkit 12.1 o superior

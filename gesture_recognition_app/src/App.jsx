@@ -5,11 +5,36 @@ import './App.css';
 const WEBSOCKET_URL = 'ws://localhost:8765';
 
 function App() {
+  // Estado de conexión
   const [connected, setConnected] = useState(false);
-  const [hands, setHands] = useState([]);
-  const [fps, setFps] = useState(0);
-  const [frame, setFrame] = useState(null);
   const [error, setError] = useState(null);
+  
+  // Datos del sistema
+  const [fps, setFps] = useState(0);
+  const [frameRgb, setFrameRgb] = useState(null);
+  const [frameDepth, setFrameDepth] = useState(null);
+  
+  // Detecciones
+  const [objects, setObjects] = useState([]);
+  const [hands, setHands] = useState([]);
+  
+  // Configuración
+  const [config, setConfig] = useState({
+    depthEnabled: true,
+    objectsEnabled: true,
+    gesturesEnabled: true
+  });
+  
+  // Estadísticas
+  const [stats, setStats] = useState({
+    frames_processed: 0,
+    objects_detected: 0,
+    hands_detected: 0
+  });
+  
+  // Modo de visualización
+  const [viewMode, setViewMode] = useState('rgb'); // 'rgb', 'depth', 'split'
+  
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
 
@@ -30,10 +55,9 @@ function App() {
       const ws = new WebSocket(WEBSOCKET_URL);
       
       ws.onopen = () => {
-        console.log('Conectado al servidor');
+        console.log('Conectado al Kinect Table System');
         setConnected(true);
         setError(null);
-        ws.send(JSON.stringify({ type: 'start_camera', camera_id: 0 }));
       };
 
       ws.onmessage = (event) => {
@@ -41,11 +65,29 @@ function App() {
           const data = JSON.parse(event.data);
           
           if (data.type === 'frame') {
-            setFrame(data.frame);
+            // Actualizar frames
+            if (data.rgb) setFrameRgb(data.rgb);
+            if (data.depth) setFrameDepth(data.depth);
+            
+            // Actualizar detecciones
+            setObjects(data.objects || []);
             setHands(data.hands || []);
-            setFps(data.fps || 0);
-          } else if (data.type === 'welcome') {
+            
+            // Actualizar stats
+            if (data.stats) {
+              setStats(data.stats);
+              setFps(data.stats.fps || 0);
+            }
+          } 
+          else if (data.type === 'welcome') {
             console.log(data.message);
+            if (data.config) {
+              setConfig({
+                depthEnabled: data.config.depth_enabled,
+                objectsEnabled: data.config.objects_enabled,
+                gesturesEnabled: data.config.gestures_enabled
+              });
+            }
           }
         } catch (err) {
           console.error('Error procesando mensaje:', err);
@@ -61,7 +103,6 @@ function App() {
         console.log('Desconectado del servidor');
         setConnected(false);
         
-        // Intentar reconectar después de 3 segundos
         reconnectTimeoutRef.current = setTimeout(() => {
           console.log('Intentando reconectar...');
           connectWebSocket();
@@ -75,6 +116,27 @@ function App() {
     }
   };
 
+  const sendMessage = (type, data = {}) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type, ...data }));
+    }
+  };
+
+  const toggleDepth = () => {
+    sendMessage('toggle_depth');
+    setConfig(prev => ({ ...prev, depthEnabled: !prev.depthEnabled }));
+  };
+
+  const toggleObjects = () => {
+    sendMessage('toggle_objects');
+    setConfig(prev => ({ ...prev, objectsEnabled: !prev.objectsEnabled }));
+  };
+
+  const toggleGestures = () => {
+    sendMessage('toggle_gestures');
+    setConfig(prev => ({ ...prev, gesturesEnabled: !prev.gesturesEnabled }));
+  };
+
   const getGestureIcon = (gesture) => {
     const icons = {
       'open_palm': '🖐️',
@@ -83,36 +145,52 @@ function App() {
       'thumbs_down': '👎',
       'peace_sign': '✌️',
       'ok_sign': '👌',
-      'pointing': '☝️',
+      'pointing': '👉',
       'pinch': '🤏',
+      'rock': '🤘',
+      'call_me': '🤙',
+      'three': '3️⃣',
+      'four': '4️⃣',
+      'spiderman': '🕷️',
+      'love': '🤟',
+      'gun': '🔫',
+      'middle_finger': '🖕',
+      'grab': '🫳',
       'unknown': '❓'
     };
     return icons[gesture] || '❓';
   };
 
-  const getHandColor = (handedness) => {
-    return handedness === 'Left' ? 'from-cyan-500 to-blue-600' : 'from-pink-500 to-purple-600';
+  const getObjectIcon = (className) => {
+    const icons = {
+      'person': '🚶',
+      'cup': '☕',
+      'bottle': '🍾',
+      'book': '📚',
+      'cell phone': '📱',
+      'laptop': '💻',
+      'mouse': '🖱️',
+      'keyboard': '⌨️',
+      'scissors': '✂️'
+    };
+    return icons[className] || '📦';
   };
 
   return (
     <div className="app-container">
-      {/* Header con efecto de cristal */}
+      {/* Header */}
       <motion.header 
         className="app-header"
         initial={{ y: -100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
+        transition={{ duration: 0.8 }}
       >
         <div className="header-content">
-          <motion.div 
-            className="logo-container"
-            whileHover={{ scale: 1.05 }}
-            transition={{ type: "spring", stiffness: 400 }}
-          >
-            <div className="logo-icon">🤖</div>
+          <motion.div className="logo-container">
+            <div className="logo-icon">🎯</div>
             <div>
-              <h1 className="logo-title">Hand Gesture Recognition</h1>
-              <p className="logo-subtitle">Kinect Table System</p>
+              <h1 className="logo-title">Kinect Table System</h1>
+              <p className="logo-subtitle">Interactive Object & Gesture Recognition</p>
             </div>
           </motion.div>
 
@@ -123,11 +201,7 @@ function App() {
                 scale: connected ? [1, 1.2, 1] : 1,
                 opacity: connected ? [1, 0.7, 1] : 0.5
               }}
-              transition={{ 
-                duration: 2, 
-                repeat: connected ? Infinity : 0,
-                ease: "easeInOut" 
-              }}
+              transition={{ duration: 2, repeat: Infinity }}
             />
             <span className="status-text">
               {connected ? 'Conectado' : 'Desconectado'}
@@ -154,175 +228,228 @@ function App() {
       {/* Main Content */}
       <div className="main-content">
         {/* Video Feed */}
-        <motion.div 
-          className="video-container"
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
-          <div className="video-wrapper">
-            {frame ? (
-              <img 
-                src={`data:image/jpeg;base64,${frame}`} 
-                alt="Hand Tracking" 
-                className="video-feed"
-              />
-            ) : (
-              <div className="video-placeholder">
-                <motion.div 
-                  className="placeholder-icon"
-                  animate={{ 
-                    scale: [1, 1.1, 1],
-                    rotate: [0, 5, -5, 0]
-                  }}
-                  transition={{ 
-                    duration: 3, 
-                    repeat: Infinity,
-                    ease: "easeInOut" 
-                  }}
-                >
-                  📹
-                </motion.div>
-                <p>Esperando feed de video...</p>
+        <div className="video-section">
+          {/* Controles de visualización */}
+          <div className="view-controls">
+            <button 
+              className={`view-btn ${viewMode === 'rgb' ? 'active' : ''}`}
+              onClick={() => setViewMode('rgb')}
+            >
+              📹 RGB
+            </button>
+            <button 
+              className={`view-btn ${viewMode === 'depth' ? 'active' : ''}`}
+              onClick={() => setViewMode('depth')}
+              disabled={!config.depthEnabled}
+            >
+              🌊 Depth
+            </button>
+            <button 
+              className={`view-btn ${viewMode === 'split' ? 'active' : ''}`}
+              onClick={() => setViewMode('split')}
+              disabled={!config.depthEnabled}
+            >
+              🔀 Split
+            </button>
+          </div>
+
+          {/* Video Display */}
+          <motion.div 
+            className="video-container"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+          >
+            {viewMode === 'rgb' && (
+              <div className="video-wrapper">
+                {frameRgb ? (
+                  <img 
+                    src={`data:image/jpeg;base64,${frameRgb}`} 
+                    alt="RGB Feed" 
+                    className="video-feed"
+                  />
+                ) : (
+                  <div className="video-placeholder">
+                    <div className="placeholder-icon">📹</div>
+                    <p>Esperando feed RGB...</p>
+                  </div>
+                )}
               </div>
             )}
-          </div>
 
-          {/* Video Overlay Info */}
-          {hands.length > 0 && (
-            <div className="video-overlay">
-              <motion.div 
-                className="hands-detected-badge"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 300 }}
-              >
-                {hands.length} {hands.length === 1 ? 'Mano' : 'Manos'} Detectadas
-              </motion.div>
-            </div>
-          )}
-        </motion.div>
+            {viewMode === 'depth' && (
+              <div className="video-wrapper">
+                {frameDepth ? (
+                  <img 
+                    src={`data:image/jpeg;base64,${frameDepth}`} 
+                    alt="Depth Feed" 
+                    className="video-feed"
+                  />
+                ) : (
+                  <div className="video-placeholder">
+                    <div className="placeholder-icon">🌊</div>
+                    <p>Esperando feed de profundidad...</p>
+                  </div>
+                )}
+              </div>
+            )}
 
-        {/* Hands Panel */}
-        <div className="hands-panel">
-          <motion.h2 
-            className="panel-title"
-            initial={{ x: 50, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-          >
-            Gestos Detectados
-          </motion.h2>
-
-          <div className="hands-grid">
-            <AnimatePresence mode="popLayout">
-              {hands.length === 0 ? (
-                <motion.div 
-                  key="no-hands"
-                  className="no-hands-message"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                >
-                  <div className="no-hands-icon">👋</div>
-                  <p>Muestra tus manos frente a la cámara</p>
-                </motion.div>
-              ) : (
-                hands.map((hand, index) => (
-                  <motion.div
-                    key={`hand-${index}-${hand.handedness}`}
-                    className="hand-card"
-                    initial={{ opacity: 0, scale: 0.8, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.8, y: -20 }}
-                    transition={{ 
-                      type: "spring", 
-                      stiffness: 300, 
-                      damping: 25,
-                      delay: index * 0.1 
-                    }}
-                    whileHover={{ scale: 1.05, y: -5 }}
-                  >
-                    <div className={`hand-gradient bg-gradient-to-br ${getHandColor(hand.handedness)}`} />
-                    
-                    <div className="hand-card-content">
-                      <div className="hand-header">
-                        <motion.span 
-                          className="hand-icon"
-                          animate={{ rotate: [0, 10, -10, 0] }}
-                          transition={{ duration: 2, repeat: Infinity }}
-                        >
-                          {hand.handedness === 'Left' ? '👈' : '👉'}
-                        </motion.span>
-                        <div className="hand-info">
-                          <h3 className="hand-title">Mano {hand.handedness === 'Left' ? 'Izquierda' : 'Derecha'}</h3>
-                          <p className="hand-confidence">{(hand.confidence * 100).toFixed(0)}% confianza</p>
-                        </div>
-                      </div>
-
-                      <div className="gesture-display">
-                        <motion.div 
-                          className="gesture-icon-large"
-                          key={hand.gesture}
-                          initial={{ scale: 0, rotate: -180 }}
-                          animate={{ scale: 1, rotate: 0 }}
-                          transition={{ type: "spring", stiffness: 200 }}
-                        >
-                          {getGestureIcon(hand.gesture)}
-                        </motion.div>
-                        <p className="gesture-name">{hand.gesture_name}</p>
-                      </div>
-
-                      <div className="hand-details">
-                        <div className="detail-item">
-                          <span className="detail-label">Posición</span>
-                          <span className="detail-value">
-                            X: {hand.center.x.toFixed(0)} Y: {hand.center.y.toFixed(0)}
-                          </span>
-                        </div>
-                        <div className="detail-item">
-                          <span className="detail-label">Landmarks</span>
-                          <span className="detail-value">{hand.landmarks.length} puntos</span>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Gesture Guide */}
-          <motion.div 
-            className="gesture-guide"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-          >
-            <h3 className="guide-title">Gestos Disponibles</h3>
-            <div className="gesture-grid">
-              {[
-                { icon: '🖐️', name: 'Mano Abierta' },
-                { icon: '✊', name: 'Puño' },
-                { icon: '👍', name: 'Pulgar Arriba' },
-                { icon: '👎', name: 'Pulgar Abajo' },
-                { icon: '✌️', name: 'Paz' },
-                { icon: '👌', name: 'OK' },
-                { icon: '☝️', name: 'Señalar' },
-                { icon: '🤏', name: 'Pellizco' }
-              ].map((gesture, i) => (
-                <motion.div
-                  key={i}
-                  className="gesture-item"
-                  whileHover={{ scale: 1.1, y: -3 }}
-                  transition={{ type: "spring", stiffness: 400 }}
-                >
-                  <span className="gesture-item-icon">{gesture.icon}</span>
-                  <span className="gesture-item-name">{gesture.name}</span>
-                </motion.div>
-              ))}
-            </div>
+            {viewMode === 'split' && (
+              <div className="video-split">
+                <div className="video-wrapper-half">
+                  {frameRgb ? (
+                    <img 
+                      src={`data:image/jpeg;base64,${frameRgb}`} 
+                      alt="RGB" 
+                      className="video-feed"
+                    />
+                  ) : (
+                    <div className="video-placeholder-small">RGB</div>
+                  )}
+                  <div className="video-label">RGB</div>
+                </div>
+                <div className="video-wrapper-half">
+                  {frameDepth ? (
+                    <img 
+                      src={`data:image/jpeg;base64,${frameDepth}`} 
+                      alt="Depth" 
+                      className="video-feed"
+                    />
+                  ) : (
+                    <div className="video-placeholder-small">DEPTH</div>
+                  )}
+                  <div className="video-label">DEPTH</div>
+                </div>
+              </div>
+            )}
           </motion.div>
+
+          {/* Stats Overlay */}
+          <div className="stats-overlay">
+            <div className="stat-item">
+              <span className="stat-label">Frames:</span>
+              <span className="stat-value">{stats.frames_processed}</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Objetos:</span>
+              <span className="stat-value">{objects.length}</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Manos:</span>
+              <span className="stat-value">{hands.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Detections Panel */}
+        <div className="detections-panel">
+          {/* Controles */}
+          <div className="controls-section">
+            <h3 className="section-title">🎛️ Controles</h3>
+            <div className="toggle-buttons">
+              <button 
+                className={`toggle-btn ${config.depthEnabled ? 'active' : ''}`}
+                onClick={toggleDepth}
+              >
+                {config.depthEnabled ? '✅' : '❌'} Profundidad
+              </button>
+              <button 
+                className={`toggle-btn ${config.objectsEnabled ? 'active' : ''}`}
+                onClick={toggleObjects}
+              >
+                {config.objectsEnabled ? '✅' : '❌'} Objetos
+              </button>
+              <button 
+                className={`toggle-btn ${config.gesturesEnabled ? 'active' : ''}`}
+                onClick={toggleGestures}
+              >
+                {config.gesturesEnabled ? '✅' : '❌'} Gestos
+              </button>
+            </div>
+          </div>
+
+          {/* Objetos Detectados */}
+          <div className="objects-section">
+            <h3 className="section-title">📦 Objetos Detectados</h3>
+            <div className="items-grid">
+              <AnimatePresence mode="popLayout">
+                {objects.length === 0 ? (
+                  <motion.div 
+                    key="no-objects"
+                    className="no-items-message"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <div className="no-items-icon">📦</div>
+                    <p>No hay objetos detectados</p>
+                  </motion.div>
+                ) : (
+                  objects.map((obj, index) => (
+                    <motion.div
+                      key={`obj-${index}`}
+                      className="detection-card object-card"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <div className="card-icon">{getObjectIcon(obj.class_name)}</div>
+                      <div className="card-content">
+                        <div className="card-title">{obj.class_name}</div>
+                        <div className="card-confidence">
+                          {(obj.confidence * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Gestos Detectados */}
+          <div className="gestures-section">
+            <h3 className="section-title">👋 Gestos Detectados</h3>
+            <div className="items-grid">
+              <AnimatePresence mode="popLayout">
+                {hands.length === 0 ? (
+                  <motion.div 
+                    key="no-hands"
+                    className="no-items-message"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <div className="no-items-icon">👋</div>
+                    <p>No hay gestos detectados</p>
+                  </motion.div>
+                ) : (
+                  hands.map((hand, index) => (
+                    <motion.div
+                      key={`hand-${index}`}
+                      className="detection-card gesture-card"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <div className="card-icon">
+                        {getGestureIcon(hand.gesture)}
+                      </div>
+                      <div className="card-content">
+                        <div className="card-title">
+                          {hand.handedness === 'Left' ? '👈' : '👉'} {hand.gesture_name}
+                        </div>
+                        <div className="card-confidence">
+                          {(hand.confidence * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         </div>
       </div>
 

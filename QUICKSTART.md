@@ -26,16 +26,34 @@ pip install -r requirements.txt
 
 ### 4️⃣ Instalar Drivers del Kinect
 
-**Windows:**
-1. Descargar [Kinect for Windows SDK 2.0](https://www.microsoft.com/en-us/download/details.aspx?id=44561)
-2. Instalar el SDK
-3. Conectar el Kinect con adaptador de corriente
+**Para Kinect Xbox 360 (v1):**
 
-**Linux:**
+Windows:
+1. Descargar [Kinect for Windows SDK 1.8](https://www.microsoft.com/en-us/download/details.aspx?id=40278)
+2. Instalar el SDK
+3. Instalar biblioteca Python:
+```bash
+pip install freenect
+```
+
+Linux:
 ```bash
 sudo apt-get update
-sudo apt-get install libfreenect-dev freenect
+sudo apt-get install libfreenect-dev freenect python3-freenect
+pip install freenect
 ```
+
+**Para Kinect Xbox ONE (v2):**
+
+Windows:
+1. Descargar [Kinect for Windows SDK 2.0](https://www.microsoft.com/en-us/download/details.aspx?id=44561)
+2. Instalar el SDK
+3. Instalar PyKinect2:
+```bash
+pip install git+https://github.com/Kinect/PyKinect2.git
+```
+
+> ⚠️ **IMPORTANTE:** PyKinect2 es SOLO para Kinect Xbox ONE (v2), NO funciona con Kinect Xbox 360
 
 ### 5️⃣ Descargar Modelos
 ```bash
@@ -80,17 +98,29 @@ python main.py --simulation tu_video.mp4
 
 ## ❓ Problemas Comunes
 
-### "No module named 'pykinect2'"
-**Solución:** Instala PyKinect2
+### "No module named 'pykinect2'" o "Wrong version"
+**Causa:** Estás usando PyKinect2 (para Kinect v2) pero tienes Kinect Xbox 360 (v1)
+
+**Solución para Kinect Xbox 360 (v1):**
 ```bash
-pip install pykinect2
+pip uninstall pykinect2
+pip install freenect
+```
+
+**Solución para Kinect Xbox ONE (v2):**
+```bash
+pip install git+https://github.com/Kinect/PyKinect2.git
 ```
 
 ### "Kinect not detected"
 **Solución:** 
-- Verifica que el Kinect esté conectado con adaptador de corriente
-- En Windows, verifica que el SDK esté instalado
-- Revisa que los drivers estén actualizados
+- Verifica qué Kinect tienes:
+  - **Xbox 360**: Sensor rectangular, necesita adaptador de corriente AC
+  - **Xbox ONE**: Sensor más grande y redondeado
+- Verifica que el SDK correcto esté instalado:
+  - Xbox 360 → SDK 1.8
+  - Xbox ONE → SDK 2.0
+- Revisa que los drivers estén actualizados en Device Manager
 
 ### Error de CUDA
 **Solución:** Si no tienes GPU NVIDIA, ejecuta:

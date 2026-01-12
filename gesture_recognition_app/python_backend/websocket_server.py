@@ -10,19 +10,27 @@ import json
 import cv2
 import base64
 import numpy as np
-from typing import Set
+from typing import Set, Optional
 import logging
 import sys
 from pathlib import Path
+
+# Configurar logging primero
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Intentar importar TurboJPEG, si no está disponible usar OpenCV como fallback
+try:
+    from turbojpeg import TurboJPEG
+    TURBOJPEG_AVAILABLE = True
+except (ImportError, RuntimeError) as e:
+    TURBOJPEG_AVAILABLE = False
+    logger.warning(f"TurboJPEG no disponible: {e}. Usando OpenCV como fallback.")
 
 # Agregar el directorio padre al path para importar hand_tracking
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hand_tracking import HandTracker, HandGesture
-
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class HandTrackingServer:
@@ -36,6 +44,21 @@ class HandTrackingServer:
         self.cap = None
         self.running = False
         
+        # Inicializar encoder JPEG (TurboJPEG si está disponible, sino OpenCV)
+        self.use_turbojpeg = False
+        self.jpeg_encoder: Optional[TurboJPEG] = None
+        
+        if TURBOJPEG_AVAILABLE:
+            try:
+                self.jpeg_encoder = TurboJPEG()
+                self.use_turbojpeg = True
+                logger.info("Usando TurboJPEG para codificación de frames (más rápido)")
+            except RuntimeError as e:
+                logger.warning(f"No se pudo inicializar TurboJPEG: {e}. Usando OpenCV como fallback.")
+                self.use_turbojpeg = False
+        else:
+            logger.info("Usando OpenCV para codificación de frames")
+        
     async def register_client(self, websocket: websockets.WebSocketServerProtocol):
         """Registrar un nuevo cliente"""
         self.clients.add(websocket)
@@ -46,8 +69,28 @@ class HandTrackingServer:
         self.clients.discard(websocket)
         logger.info(f"Cliente desconectado. Total: {len(self.clients)}")
     
-    def _encode_frame(self, frame: np.ndarray, quality: int = 80) -> str:
-        """Codificar frame a base64 JPEG"""
+    def _encode_frame(self, frame: np.ndarray, quality: int = 75) -> str:
+        """
+        Codificar frame a base64 JPEG
+        Usa TurboJPEG si está disponible (más rápido), sino usa OpenCV
+        """
+        # Redimensionar si es necesario para reducir ancho de banda
+        if frame.shape[1] > 960:
+            scale = 960 / frame.shape[1]
+            new_size = (960, int(frame.shape[0] * scale))
+            frame = cv2.resize(frame, new_size, interpolation=cv2.INTER_LINEAR)
+        
+        # Codificar con TurboJPEG si está disponible
+        if self.use_turbojpeg and self.jpeg_encoder is not None:
+            try:
+                jpg_bytes = self.jpeg_encoder.encode(frame, quality=quality)
+                return base64.b64encode(jpg_bytes).decode('utf-8')
+            except Exception as e:
+                logger.warning(f"Error con TurboJPEG, usando OpenCV: {e}")
+                # Fallback a OpenCV
+                self.use_turbojpeg = False
+        
+        # Fallback: usar OpenCV (más lento pero siempre disponible)
         _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
         jpg_as_text = base64.b64encode(buffer).decode('utf-8')
         return jpg_as_text

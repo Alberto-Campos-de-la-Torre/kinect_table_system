@@ -78,9 +78,29 @@ class GestureRecognizer:
             min_detection_confidence: Confianza mínima para detección
             min_tracking_confidence: Confianza mínima para tracking
         """
-        self.mp_hands = mp.solutions.hands
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
+        # Intentar usar la API antigua (mediapipe < 0.10)
+        # Verificar si existe mp.solutions
+        if hasattr(mp, 'solutions'):
+            self.mp_hands = mp.solutions.hands
+            self.mp_drawing = mp.solutions.drawing_utils
+            self.mp_drawing_styles = mp.solutions.drawing_styles
+        else:
+            # Si no existe solutions, intentar importar directamente
+            try:
+                from mediapipe import solutions
+                self.mp_hands = solutions.hands
+                self.mp_drawing = solutions.drawing_utils
+                self.mp_drawing_styles = solutions.drawing_styles
+            except (ImportError, AttributeError):
+                # Si tampoco funciona, la versión de MediaPipe no es compatible
+                import mediapipe
+                version = getattr(mediapipe, '__version__', 'desconocida')
+                raise ImportError(
+                    f"MediaPipe versión {version} no es compatible con este código.\n"
+                    "Este código requiere MediaPipe con la API 'solutions'.\n"
+                    "Instala una versión compatible con: pip install 'mediapipe>=0.8.0,<0.10.0'\n"
+                    "O específicamente: pip install mediapipe==0.9.3"
+                )
         
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
