@@ -112,9 +112,9 @@ class HandTracker:
         # Para dibujar landmarks (usando OpenCV ya que la nueva API no tiene drawing_utils)
         self.use_opencv_drawing = True
         
-        # Historial para suavizado temporal
-        self.gesture_history: List[HandGesture] = []
-        self.history_size = 5
+        # Historial para suavizado temporal (aumentado para mayor estabilidad)
+        self.gesture_history: Dict[str, List[HandGesture]] = {"Left": [], "Right": []}
+        self.history_size = 7  # Mayor historial = más estable pero menos reactivo
         
         # Métricas
         self.fps = 0
@@ -217,8 +217,8 @@ class HandTracker:
         # Reconocer gesto
         gesture = self._recognize_gesture(landmarks)
         
-        # Suavizado temporal del gesto
-        gesture = self._smooth_gesture(gesture)
+        # Suavizado temporal del gesto (por mano)
+        gesture = self._smooth_gesture(gesture, handedness)
         
         return HandData(
             landmarks=landmarks,
@@ -231,7 +231,7 @@ class HandTracker:
     
     def _recognize_gesture(self, landmarks: List[HandLandmark]) -> HandGesture:
         """
-        Reconocer gesto basado en landmarks
+        Reconocer gesto basado en landmarks con umbrales mejorados
         
         Indices de landmarks (MediaPipe):
         0: Muñeca
@@ -251,15 +251,24 @@ class HandTracker:
         ring_tip = landmarks[16]
         pinky_tip = landmarks[20]
         
-        # Articulaciones medias (PIP)
+        # Articulaciones IP del pulgar
         thumb_ip = landmarks[3]
+        
+        # Articulaciones medias (PIP)
         index_pip = landmarks[6]
         middle_pip = landmarks[10]
         ring_pip = landmarks[14]
         pinky_pip = landmarks[18]
         
+        # Articulaciones DIP
+        index_dip = landmarks[7]
+        middle_dip = landmarks[11]
+        ring_dip = landmarks[15]
+        pinky_dip = landmarks[19]
+        
         # Articulaciones base (MCP)
         thumb_mcp = landmarks[2]
+        thumb_cmc = landmarks[1]
         index_mcp = landmarks[5]
         middle_mcp = landmarks[9]
         ring_mcp = landmarks[13]
@@ -268,110 +277,185 @@ class HandTracker:
         # Muñeca
         wrist = landmarks[0]
         
-        # Detectar dedos extendidos
-        # Pulgar: comparar distancia horizontal
-        thumb_extended = abs(thumb_tip.x - thumb_mcp.x) > 0.05
+        # ========== DETECCIÓN MEJORADA DE DEDOS EXTENDIDOS ==========
         
-        # Otros dedos: punta por encima del PIP (en coordenadas de imagen, Y menor = arriba)
-        index_extended = index_tip.y < index_pip.y
-        middle_extended = middle_tip.y < middle_pip.y
-        ring_extended = ring_tip.y < ring_pip.y
-        pinky_extended = pinky_tip.y < pinky_pip.y
+        # Pulgar: usar múltiples criterios para mayor precisión
+        # El pulgar está extendido si:
+        # 1. La punta está alejada de la palma (distancia horizontal)
+        # 2. La punta está más alejada que el IP de la base MCP
+        thumb_to_palm_dist = abs(thumb_tip.x - index_mcp.x)
+        thumb_ip_to_palm = abs(thumb_ip.x - index_mcp.x)
+        thumb_extended_horizontal = thumb_to_palm_dist > thumb_ip_to_palm
+        thumb_extended_away = abs(thumb_tip.x - thumb_cmc.x) > 0.08
+        thumb_extended = thumb_extended_horizontal and thumb_extended_away
         
-        fingers = [thumb_extended, index_extended, middle_extended, ring_extended, pinky_extended]
-        extended_count = sum(fingers)
+        # Para otros dedos: usar diferencia de altura entre punta y PIP
+        # Con margen más generoso para considerar extendido
+        EXTEND_THRESHOLD = 0.02  # Umbral para considerar dedo extendido
+        CURL_THRESHOLD = 0.03   # Umbral para considerar dedo cerrado
+        
+        # Calcular "curvatura" de cada dedo
+        def finger_curl_ratio(tip, dip, pip, mcp):
+            """Calcular qué tan cerrado está un dedo (0=extendido, 1=cerrado)"""
+            # Distancia de tip a mcp vs distancia de pip a mcp
+            tip_to_mcp = np.sqrt((tip.x - mcp.x)**2 + (tip.y - mcp.y)**2)
+            pip_to_mcp = np.sqrt((pip.x - mcp.x)**2 + (pip.y - mcp.y)**2)
+            if pip_to_mcp < 0.01:
+                return 0.5
+            return 1.0 - min(tip_to_mcp / (pip_to_mcp * 2.5), 1.0)
+        
+        index_curl = finger_curl_ratio(index_tip, index_dip, index_pip, index_mcp)
+        middle_curl = finger_curl_ratio(middle_tip, middle_dip, middle_pip, middle_mcp)
+        ring_curl = finger_curl_ratio(ring_tip, ring_dip, ring_pip, ring_mcp)
+        pinky_curl = finger_curl_ratio(pinky_tip, pinky_dip, pinky_pip, pinky_mcp)
+        
+        # Criterio principal: punta por encima del PIP con margen
+        index_extended = index_tip.y < index_pip.y - EXTEND_THRESHOLD
+        middle_extended = middle_tip.y < middle_pip.y - EXTEND_THRESHOLD
+        ring_extended = ring_tip.y < ring_pip.y - EXTEND_THRESHOLD
+        pinky_extended = pinky_tip.y < pinky_pip.y - EXTEND_THRESHOLD
+        
+        # Criterio secundario: punta por debajo del MCP (dedo cerrado)
+        index_closed = index_tip.y > index_mcp.y + CURL_THRESHOLD
+        middle_closed = middle_tip.y > middle_mcp.y + CURL_THRESHOLD
+        ring_closed = ring_tip.y > ring_mcp.y + CURL_THRESHOLD
+        pinky_closed = pinky_tip.y > pinky_mcp.y + CURL_THRESHOLD
+        
+        # Contar dedos (sin pulgar)
+        four_fingers_extended = sum([index_extended, middle_extended, ring_extended, pinky_extended])
+        four_fingers_closed = sum([index_closed, middle_closed, ring_closed, pinky_closed])
+        
+        extended_count = int(thumb_extended) + four_fingers_extended
         
         # Distancias útiles
         thumb_index_dist = np.sqrt((thumb_tip.x - index_tip.x)**2 + (thumb_tip.y - index_tip.y)**2)
         thumb_middle_dist = np.sqrt((thumb_tip.x - middle_tip.x)**2 + (thumb_tip.y - middle_tip.y)**2)
-        thumb_pinky_dist = np.sqrt((thumb_tip.x - pinky_tip.x)**2 + (thumb_tip.y - pinky_tip.y)**2)
         
-        # ========== RECONOCIMIENTO DE GESTOS ==========
+        # ========== RECONOCIMIENTO DE GESTOS (ORDEN OPTIMIZADO) ==========
         
-        # PINCH - Pellizco (pulgar e índice muy cercanos)
-        if thumb_index_dist < 0.04 and not middle_extended and not ring_extended:
-            return HandGesture.PINCH
+        # PRIORIDAD 1: PUÑO CERRADO - Todos los dedos cerrados
+        # Criterio estricto: todos los dedos deben estar claramente cerrados
+        if four_fingers_closed >= 3 and not thumb_extended:
+            # Verificar que las puntas están cerca de la palma
+            palm_center_y = (index_mcp.y + pinky_mcp.y) / 2
+            tips_near_palm = (
+                abs(index_tip.y - palm_center_y) < 0.15 and
+                abs(middle_tip.y - palm_center_y) < 0.15 and
+                abs(ring_tip.y - palm_center_y) < 0.15
+            )
+            if tips_near_palm:
+                return HandGesture.CLOSED_FIST
         
-        # GRAB - Agarrar (todos los dedos semi-cerrados, como agarrando algo)
-        if thumb_index_dist < 0.06 and thumb_middle_dist < 0.08 and extended_count <= 2:
-            return HandGesture.GRAB
-        
-        # OK SIGN - Pulgar e índice en círculo, otros extendidos
-        if thumb_index_dist < 0.05 and middle_extended and ring_extended and pinky_extended:
-            return HandGesture.OK_SIGN
-        
-        # CLOSED FIST - Puño cerrado
-        if extended_count == 0:
+        # Criterio alternativo para puño
+        if four_fingers_extended == 0 and not thumb_extended:
             return HandGesture.CLOSED_FIST
         
-        # OPEN PALM - Mano abierta (5 dedos)
-        if extended_count >= 5:
+        # PRIORIDAD 2: PALMA ABIERTA - Todos los 5 dedos extendidos
+        # Criterio estricto: el pulgar DEBE estar claramente extendido
+        if four_fingers_extended >= 4 and thumb_extended:
+            # Verificar que los dedos están bien separados (no es FOUR)
             return HandGesture.OPEN_PALM
         
-        # FOUR - Cuatro dedos (sin pulgar)
-        if not thumb_extended and index_extended and middle_extended and ring_extended and pinky_extended:
+        # PRIORIDAD 3: FOUR - 4 dedos extendidos SIN pulgar
+        if four_fingers_extended >= 4 and not thumb_extended:
             return HandGesture.FOUR
         
-        # THREE - Tres dedos (índice, medio, anular)
+        # PRIORIDAD 4: THREE - 3 dedos centrales (índice, medio, anular)
         if index_extended and middle_extended and ring_extended and not pinky_extended and not thumb_extended:
             return HandGesture.THREE
         
-        # PEACE SIGN - Señal de paz (índice y medio)
-        if index_extended and middle_extended and not ring_extended and not pinky_extended:
-            if not thumb_extended:
-                return HandGesture.PEACE_SIGN
+        # PRIORIDAD 5: PEACE SIGN - Solo índice y medio extendidos
+        if index_extended and middle_extended and not ring_extended and not pinky_extended and not thumb_extended:
+            return HandGesture.PEACE_SIGN
         
-        # ROCK - Cuernos del rock (índice y meñique)
+        # PRIORIDAD 6: OK SIGN - Pulgar e índice en círculo, otros extendidos
+        if thumb_index_dist < 0.06 and middle_extended and ring_extended and pinky_extended:
+            return HandGesture.OK_SIGN
+        
+        # PRIORIDAD 7: PINCH - Pellizco (pulgar e índice muy cercanos)
+        if thumb_index_dist < 0.05 and not middle_extended and not ring_extended:
+            return HandGesture.PINCH
+        
+        # PRIORIDAD 8: ROCK - Cuernos (índice y meñique)
         if index_extended and pinky_extended and not middle_extended and not ring_extended:
-            return HandGesture.ROCK
+            if not thumb_extended:
+                return HandGesture.ROCK
         
-        # LOVE - Te quiero en lengua de señas (pulgar, índice y meñique)
+        # PRIORIDAD 9: LOVE - Te quiero (pulgar, índice y meñique)
         if thumb_extended and index_extended and pinky_extended and not middle_extended and not ring_extended:
             return HandGesture.LOVE
         
-        # SPIDERMAN - Gesto Spiderman (pulgar, índice y meñique, pero pulgar sobre palma)
-        if index_extended and pinky_extended and not middle_extended and not ring_extended:
-            if thumb_middle_dist < 0.06:  # Pulgar tocando palma
-                return HandGesture.SPIDERMAN
-        
-        # CALL ME - Teléfono (pulgar y meñique)
+        # PRIORIDAD 10: CALL ME - Teléfono (pulgar y meñique)
         if thumb_extended and pinky_extended and not index_extended and not middle_extended and not ring_extended:
             return HandGesture.CALL_ME
         
-        # THUMBS UP/DOWN - Solo pulgar
-        if thumb_extended and extended_count == 1:
+        # PRIORIDAD 11: THUMBS UP/DOWN - Solo pulgar
+        if thumb_extended and four_fingers_extended == 0:
             if thumb_tip.y < wrist.y:
                 return HandGesture.THUMBS_UP
             else:
                 return HandGesture.THUMBS_DOWN
         
-        # POINTING - Solo índice
-        if index_extended and extended_count == 1:
+        # PRIORIDAD 12: POINTING - Solo índice
+        if index_extended and not middle_extended and not ring_extended and not pinky_extended:
             return HandGesture.POINTING
         
-        # GUN - Pistola (pulgar e índice extendidos, como una L)
+        # PRIORIDAD 13: GUN - Pistola (pulgar e índice)
         if thumb_extended and index_extended and not middle_extended and not ring_extended and not pinky_extended:
             return HandGesture.GUN
         
-        # MIDDLE FINGER - Solo dedo medio
-        if middle_extended and not index_extended and not ring_extended and not pinky_extended and not thumb_extended:
-            return HandGesture.MIDDLE_FINGER
+        # PRIORIDAD 14: GRAB - Garra (dedos semi-cerrados)
+        if thumb_index_dist < 0.08 and thumb_middle_dist < 0.10 and four_fingers_extended <= 1:
+            return HandGesture.GRAB
         
         return HandGesture.UNKNOWN
     
-    def _smooth_gesture(self, gesture: HandGesture) -> HandGesture:
-        """Suavizar reconocimiento de gestos usando historial"""
-        self.gesture_history.append(gesture)
+    def _smooth_gesture(self, gesture: HandGesture, handedness: str = "Right") -> HandGesture:
+        """
+        Suavizar reconocimiento de gestos usando historial por mano.
+        Usa votación mayoritaria con peso para gestos prioritarios.
+        """
+        # Obtener historial de esta mano
+        if handedness not in self.gesture_history:
+            self.gesture_history[handedness] = []
+        
+        history = self.gesture_history[handedness]
+        history.append(gesture)
         
         # Mantener solo los últimos N gestos
-        if len(self.gesture_history) > self.history_size:
-            self.gesture_history.pop(0)
+        while len(history) > self.history_size:
+            history.pop(0)
         
-        # Si hay suficiente historia, usar votación mayoritaria
-        if len(self.gesture_history) >= 3:
+        # Si hay suficiente historia, usar votación mayoritaria ponderada
+        if len(history) >= 4:
             from collections import Counter
-            most_common = Counter(self.gesture_history).most_common(1)[0][0]
-            return most_common
+            
+            # Los gestos más recientes tienen más peso
+            weighted_history = []
+            for i, g in enumerate(history):
+                # Peso: los últimos 3 valen doble
+                weight = 2 if i >= len(history) - 3 else 1
+                weighted_history.extend([g] * weight)
+            
+            counts = Counter(weighted_history)
+            most_common_gesture, most_common_count = counts.most_common(1)[0]
+            
+            # Solo cambiar si el gesto dominante tiene suficiente confianza
+            # (al menos 40% de los votos ponderados)
+            total_votes = sum(counts.values())
+            confidence = most_common_count / total_votes
+            
+            if confidence >= 0.4:
+                return most_common_gesture
+            
+            # Si no hay consenso claro, preferir OPEN_PALM o CLOSED_FIST
+            # (los gestos principales para interacción)
+            priority_gestures = [HandGesture.OPEN_PALM, HandGesture.CLOSED_FIST]
+            for pg in priority_gestures:
+                if counts.get(pg, 0) / total_votes >= 0.3:
+                    return pg
+            
+            return most_common_gesture
         
         return gesture
     

@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
 import PointCloudViewer from './PointCloudViewer';
+import CalibrationPanel from './CalibrationPanel';
+import InteractionDemo from './InteractionDemo';
+import InteractionDemo3D from './InteractionDemo3D';
 
 const WEBSOCKET_URL = 'ws://localhost:8765';
 
@@ -9,6 +12,11 @@ function App() {
   // Estado de conexión
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Estado de pantalla completa
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenMode, setFullscreenMode] = useState('rgb'); // 'rgb', 'projection', 'demo', 'demo3d'
+  const appContainerRef = useRef(null);
   
   // Datos del sistema
   const [fps, setFps] = useState(0);
@@ -26,7 +34,19 @@ function App() {
     objectsEnabled: true,
     gesturesEnabled: true,
     pointcloudEnabled: true,
-    pointcloudColorMode: 'rgb'
+    pointcloudColorMode: 'rgb',
+    interactionsEnabled: true
+  });
+  
+  // Datos de interacción
+  const [interactionData, setInteractionData] = useState(null);
+  
+  // Panel de calibración
+  const [showCalibration, setShowCalibration] = useState(false);
+  const [calibrationData, setCalibrationData] = useState({
+    is_calibrated: false,
+    has_intrinsics: false,
+    flip: { x: false, y: true, z: false }
   });
   
   // Estadísticas
@@ -80,6 +100,11 @@ function App() {
             setObjects(data.objects || []);
             setHands(data.hands || []);
             
+            // Actualizar datos de interacción
+            if (data.interaction) {
+              setInteractionData(data.interaction);
+            }
+            
             // Actualizar stats
             if (data.stats) {
               setStats(data.stats);
@@ -94,9 +119,41 @@ function App() {
                 objectsEnabled: data.config.objects_enabled,
                 gesturesEnabled: data.config.gestures_enabled,
                 pointcloudEnabled: data.config.pointcloud_enabled,
-                pointcloudColorMode: data.config.pointcloud_color_mode || 'rgb'
+                pointcloudColorMode: data.config.pointcloud_color_mode || 'rgb',
+                interactionsEnabled: data.config.interactions_enabled ?? true
               });
+              
+              // Cargar estado de calibración
+              if (data.config.calibration) {
+                setCalibrationData(data.config.calibration);
+              }
             }
+          }
+          // Manejar toggle de interacciones
+          else if (data.type === 'interactions_toggled') {
+            setConfig(prev => ({ ...prev, interactionsEnabled: data.enabled }));
+          }
+          // Actualizar estado de calibración cuando se guarda
+          else if (data.type === 'calibration_saved') {
+            // Solicitar estado actualizado
+            if (wsRef.current) {
+              wsRef.current.send(JSON.stringify({ type: 'calibration_get_status' }));
+            }
+          }
+          // Actualización inmediata del flip
+          else if (data.type === 'calibration_flip_updated') {
+            console.log('Flip actualizado:', data.flip);
+            setCalibrationData(prev => ({
+              ...prev,
+              flip: data.flip
+            }));
+          }
+          else if (data.type === 'calibration_status') {
+            setCalibrationData({
+              is_calibrated: data.calibration?.has_table_plane || false,
+              has_intrinsics: data.calibration?.has_intrinsics || false,
+              flip: data.calibration?.flip || { x: false, y: true, z: false }
+            });
           }
         } catch (err) {
           console.error('Error procesando mensaje:', err);
@@ -156,6 +213,85 @@ function App() {
     setConfig(prev => ({ ...prev, pointcloudColorMode: mode }));
   };
 
+  const toggleInteractions = () => {
+    sendMessage('toggle_interactions');
+    setConfig(prev => ({ ...prev, interactionsEnabled: !prev.interactionsEnabled }));
+  };
+
+  // ==========================================
+  // Funciones de Pantalla Completa
+  // ==========================================
+  
+  const enterFullscreen = useCallback((mode = 'rgb') => {
+    setFullscreenMode(mode);
+    
+    const elem = appContainerRef.current || document.documentElement;
+    
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen();
+    } else if (elem.webkitRequestFullscreen) {
+      elem.webkitRequestFullscreen();
+    } else if (elem.msRequestFullscreen) {
+      elem.msRequestFullscreen();
+    }
+    
+    setIsFullscreen(true);
+  }, []);
+
+  const exitFullscreen = useCallback(() => {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+    setIsFullscreen(false);
+  }, []);
+
+  const toggleFullscreen = useCallback((mode = 'rgb') => {
+    if (isFullscreen) {
+      exitFullscreen();
+    } else {
+      enterFullscreen(mode);
+    }
+  }, [isFullscreen, enterFullscreen, exitFullscreen]);
+
+  // Escuchar eventos de fullscreen
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+      setIsFullscreen(isFS);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Manejar tecla ESC para salir de fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        exitFullscreen();
+      }
+      // F11 para toggle fullscreen
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen(viewMode);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen, exitFullscreen, toggleFullscreen, viewMode]);
+
   const getGestureIcon = (gesture) => {
     const icons = {
       'open_palm': '🖐️',
@@ -195,8 +331,215 @@ function App() {
     return icons[className] || '📦';
   };
 
+  // Renderizado de pantalla completa
+  if (isFullscreen) {
+    return (
+      <div 
+        ref={appContainerRef}
+        className={`fullscreen-container fullscreen-mode-${fullscreenMode}`}
+      >
+        {/* Barra de control flotante */}
+        <div className="fullscreen-controls">
+          <div className="fs-status">
+            <span className={`fs-indicator ${connected ? 'connected' : ''}`} />
+            <span>{fps.toFixed(1)} FPS</span>
+          </div>
+          
+          <div className="fs-mode-selector">
+            <button 
+              className={`fs-btn ${fullscreenMode === 'rgb' ? 'active' : ''}`}
+              onClick={() => setFullscreenMode('rgb')}
+            >
+              📹 RGB
+            </button>
+            <button 
+              className={`fs-btn ${fullscreenMode === 'projection' ? 'active' : ''}`}
+              onClick={() => setFullscreenMode('projection')}
+            >
+              🎯 Proyección
+            </button>
+            <button 
+              className={`fs-btn ${fullscreenMode === 'demo' ? 'active' : ''}`}
+              onClick={() => setFullscreenMode('demo')}
+            >
+              🎮 Demo 2D
+            </button>
+            <button 
+              className={`fs-btn ${fullscreenMode === 'demo3d' ? 'active' : ''}`}
+              onClick={() => setFullscreenMode('demo3d')}
+            >
+              🌐 Demo 3D
+            </button>
+          </div>
+          
+          <div className="fs-actions">
+            <button 
+              className="fs-btn calibrate"
+              onClick={() => setShowCalibration(true)}
+            >
+              🎯 Calibrar
+            </button>
+            <button 
+              className="fs-btn exit"
+              onClick={exitFullscreen}
+            >
+              ✕ Salir (ESC)
+            </button>
+          </div>
+        </div>
+
+        {/* Contenido Fullscreen */}
+        <div className="fullscreen-content">
+          {fullscreenMode === 'rgb' && frameRgb && (
+            <img 
+              src={`data:image/jpeg;base64,${frameRgb}`} 
+              alt="RGB Feed" 
+              className="fullscreen-video"
+            />
+          )}
+
+          {fullscreenMode === 'projection' && (
+            <div className="projection-mode">
+              {/* Modo proyección: fondo negro con indicadores de manos */}
+              <div className="projection-canvas">
+                {/* Indicadores de manos detectadas */}
+                {hands.map((hand, idx) => {
+                  // Obtener coordenadas del centro de la mano
+                  // El centro puede venir como array [x, y] o como objeto {x, y}
+                  let handX = 0, handY = 0;
+                  
+                  if (hand.center) {
+                    if (Array.isArray(hand.center)) {
+                      handX = hand.center[0] || 0;
+                      handY = hand.center[1] || 0;
+                    } else if (typeof hand.center === 'object') {
+                      handX = hand.center.x || 0;
+                      handY = hand.center.y || 0;
+                    }
+                  }
+                  
+                  // Calcular porcentaje para toda la pantalla (640x480 es la resolución de captura)
+                  const leftPercent = (handX / 640) * 100;
+                  const topPercent = (handY / 480) * 100;
+                  
+                  return (
+                    <div 
+                      key={idx}
+                      className={`projection-hand ${hand.handedness?.toLowerCase() || 'right'} ${hand.gesture === 'closed_fist' ? 'grabbing' : ''}`}
+                      style={{
+                        left: `${leftPercent}%`,
+                        top: `${topPercent}%`
+                      }}
+                    >
+                      <div className="hand-cursor">
+                        <span className="cursor-icon">
+                          {hand.gesture === 'closed_fist' ? '✊' : '🖐️'}
+                        </span>
+                        <span className="cursor-ring" />
+                      </div>
+                      <div className="hand-label">
+                        {hand.handedness === 'Left' ? '👈 Izq' : '👉 Der'}
+                      </div>
+                      {/* Debug info */}
+                      <div className="hand-debug">
+                        ({Math.round(handX)}, {Math.round(handY)})
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {/* Marco de área de trabajo */}
+                <div className="work-area-frame">
+                  <div className="corner top-left" />
+                  <div className="corner top-right" />
+                  <div className="corner bottom-left" />
+                  <div className="corner bottom-right" />
+                </div>
+                
+                {/* Información de estado */}
+                <div className="projection-info">
+                  <span>🖐️ Manos: {hands.length}</span>
+                  {interactionData?.selected_count > 0 && (
+                    <span className="selected-info">
+                      ✅ Seleccionados: {interactionData.selected_count}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {fullscreenMode === 'demo' && (
+            <div className="fullscreen-demo">
+              <InteractionDemo
+                ws={wsRef.current}
+                isConnected={connected}
+                interaction={interactionData}
+                hands={hands}
+                width={window.innerWidth}
+                height={window.innerHeight}
+                isFullscreen={true}
+              />
+            </div>
+          )}
+
+          {fullscreenMode === 'demo3d' && (
+            <div className="fullscreen-demo">
+              <InteractionDemo3D
+                ws={wsRef.current}
+                isConnected={connected}
+                interaction={interactionData}
+                hands={hands}
+                width={window.innerWidth}
+                height={window.innerHeight}
+                isFullscreen={true}
+              />
+            </div>
+          )}
+
+          {/* Mensaje si no hay video */}
+          {fullscreenMode === 'rgb' && !frameRgb && (
+            <div className="fullscreen-placeholder">
+              <div className="placeholder-spinner" />
+              <p>Esperando señal del Kinect...</p>
+            </div>
+          )}
+        </div>
+
+        {/* Panel de calibración en fullscreen */}
+        <AnimatePresence>
+          {showCalibration && (
+            <>
+              <motion.div 
+                className="calibration-overlay fullscreen-calibration-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowCalibration(false)}
+              />
+              <motion.div
+                className="fullscreen-calibration-panel"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+              >
+                <CalibrationPanel 
+                  ws={wsRef.current}
+                  isConnected={connected}
+                  calibrationData={calibrationData}
+                  frameRgb={frameRgb}
+                  onClose={() => setShowCalibration(false)}
+                />
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
   return (
-    <div className="app-container">
+    <div className="app-container" ref={appContainerRef}>
       {/* Header */}
       <motion.header 
         className="app-header"
@@ -226,6 +569,15 @@ function App() {
               {connected ? 'Conectado' : 'Desconectado'}
             </span>
             <div className="fps-badge">{fps.toFixed(1)} FPS</div>
+            
+            {/* Botón de pantalla completa en header */}
+            <button 
+              className="fullscreen-header-btn"
+              onClick={() => enterFullscreen(viewMode)}
+              title="Pantalla completa (F11)"
+            >
+              ⛶
+            </button>
           </div>
         </div>
       </motion.header>
@@ -276,6 +628,39 @@ function App() {
               disabled={!config.pointcloudEnabled}
             >
               ☁️ 3D
+            </button>
+            <button 
+              className={`view-btn demo-btn ${viewMode === 'demo' ? 'active' : ''}`}
+              onClick={() => setViewMode('demo')}
+              disabled={!config.interactionsEnabled}
+            >
+              🎮 2D
+            </button>
+            <button 
+              className={`view-btn demo-3d-btn ${viewMode === 'demo3d' ? 'active' : ''}`}
+              onClick={() => setViewMode('demo3d')}
+              disabled={!config.interactionsEnabled}
+            >
+              🌐 3D
+            </button>
+            
+            {/* Separador */}
+            <div className="view-controls-separator" />
+            
+            {/* Botones de pantalla completa */}
+            <button 
+              className="view-btn fullscreen-btn"
+              onClick={() => enterFullscreen(viewMode)}
+              title="Pantalla completa con vista actual"
+            >
+              ⛶ Completa
+            </button>
+            <button 
+              className="view-btn projection-btn"
+              onClick={() => enterFullscreen('projection')}
+              title="Modo proyección para mesa"
+            >
+              🎯 Proyectar
             </button>
           </div>
 
@@ -383,6 +768,32 @@ function App() {
                 </div>
               </div>
             )}
+
+            {viewMode === 'demo' && (
+              <div className="video-wrapper demo-wrapper">
+                <InteractionDemo
+                  ws={wsRef.current}
+                  isConnected={connected}
+                  interaction={interactionData}
+                  hands={hands}
+                  width={640}
+                  height={480}
+                />
+              </div>
+            )}
+
+            {viewMode === 'demo3d' && (
+              <div className="video-wrapper demo-wrapper-3d">
+                <InteractionDemo3D
+                  ws={wsRef.current}
+                  isConnected={connected}
+                  interaction={interactionData}
+                  hands={hands}
+                  width={640}
+                  height={480}
+                />
+              </div>
+            )}
           </motion.div>
 
           {/* Stats Overlay */}
@@ -431,6 +842,18 @@ function App() {
                 onClick={togglePointcloud}
               >
                 {config.pointcloudEnabled ? '✅' : '❌'} Nube 3D
+              </button>
+              <button 
+                className={`toggle-btn ${config.interactionsEnabled ? 'active' : ''}`}
+                onClick={toggleInteractions}
+              >
+                {config.interactionsEnabled ? '✅' : '❌'} Interacciones
+              </button>
+              <button 
+                className={`toggle-btn calibration-btn-main ${calibrationData.is_calibrated ? 'calibrated' : ''}`}
+                onClick={() => setShowCalibration(true)}
+              >
+                🎯 Calibración {calibrationData.is_calibrated ? '✅' : '⚠️'}
               </button>
             </div>
           </div>
@@ -518,8 +941,76 @@ function App() {
               </AnimatePresence>
             </div>
           </div>
+
+          {/* Estado de Interacción */}
+          {config.interactionsEnabled && interactionData && (
+            <div className="interaction-section">
+              <h3 className="section-title">🎮 Estado de Interacción</h3>
+              <div className="interaction-status">
+                {Object.entries(interactionData.hands || {}).map(([hand, state]) => (
+                  <div key={hand} className="hand-status-card">
+                    <div className="hand-status-header">
+                      <span>{hand === 'Left' ? '👈' : '👉'} {hand}</span>
+                      <span className={`state-badge state-${state?.state || 'idle'}`}>
+                        {state?.state || 'idle'}
+                      </span>
+                    </div>
+                    {state?.selected && (
+                      <div className="hand-status-detail">
+                        Objeto seleccionado: #{state.selected}
+                      </div>
+                    )}
+                    {state?.hovered && !state?.selected && (
+                      <div className="hand-status-detail">
+                        Hover: #{state.hovered}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                
+                <div className="interaction-counters">
+                  <div className="counter">
+                    <span className="counter-value">{interactionData.selected_count || 0}</span>
+                    <span className="counter-label">Seleccionados</span>
+                  </div>
+                  <div className="counter">
+                    <span className="counter-value">{interactionData.hovered_count || 0}</span>
+                    <span className="counter-label">Hover</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Panel de Calibración */}
+      <AnimatePresence>
+        {showCalibration && (
+          <>
+            <motion.div 
+              className="calibration-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCalibration(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+            >
+              <CalibrationPanel 
+                ws={wsRef.current}
+                isConnected={connected}
+                calibrationData={calibrationData}
+                frameRgb={frameRgb}
+                onClose={() => setShowCalibration(false)}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Animated Background */}
       <div className="background-decoration">

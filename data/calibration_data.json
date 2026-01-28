@@ -1,0 +1,39 @@
+{
+  "intrinsics": {
+    "fx": 594.21,
+    "fy": 591.04,
+    "cx": 339.5,
+    "cy": 242.7,
+    "k1": 0.0,
+    "k2": 0.0,
+    "p1": 0.0,
+    "p2": 0.0,
+    "k3": 0.0,
+    "width": 640,
+    "height": 480,
+    "calibration_date": "",
+    "reprojection_error": 0.0,
+    "num_images_used": 0
+  },
+  "table_plane": [
+    0.011538743041455746,
+    0.7574912309646606,
+    -0.652743399143219,
+    0.25831887125968933
+  ],
+  "table_height": 0.39574337005615234,
+  "homography": null,
+  "homography_inverse": null,
+  "kinect_points": null,
+  "screen_points": null,
+  "roi_min": null,
+  "roi_max": null,
+  "rotation_matrix": null,
+  "translation_vector": null,
+  "flip_x": true,
+  "flip_y": true,
+  "flip_z": true,
+  "calibration_date": "2026-01-13T23:06:24.341527",
+  "screen_width": 1920,
+  "screen_height": 1080
+}
