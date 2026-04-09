@@ -15,13 +15,8 @@
     "reprojection_error": 0.0,
     "num_images_used": 0
   },
-  "table_plane": [
-    0.011538743041455746,
-    0.7574912309646606,
-    -0.652743399143219,
-    0.25831887125968933
-  ],
-  "table_height": 0.39574337005615234,
+  "table_plane": null,
+  "table_height": 0.0,
   "homography": null,
   "homography_inverse": null,
   "kinect_points": null,
@@ -30,10 +25,10 @@
   "roi_max": null,
   "rotation_matrix": null,
   "translation_vector": null,
-  "flip_x": true,
+  "flip_x": false,
   "flip_y": true,
-  "flip_z": true,
-  "calibration_date": "2026-01-13T23:06:24.341527",
+  "flip_z": false,
+  "calibration_date": "2026-02-27T23:47:59.304326",
   "screen_width": 1920,
   "screen_height": 1080
 }
