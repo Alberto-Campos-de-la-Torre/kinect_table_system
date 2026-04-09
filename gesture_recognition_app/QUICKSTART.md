@@ -18,12 +18,7 @@ npm install
 
 ### 3️⃣ Ejecutar la Aplicación
 
-#### Windows (Automático):
-```bash
-start.bat
-```
-
-#### Linux/Mac (Automático):
+#### Automático:
 ```bash
 ./start.sh
 ```

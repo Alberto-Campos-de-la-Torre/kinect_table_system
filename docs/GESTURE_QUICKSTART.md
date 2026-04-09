@@ -84,13 +84,16 @@ curl http://localhost:8000/stats
 2. **Node.js 18+**
 3. **Rust** (última versión estable)
 
-### Instalación Rust
+### Instalación Rust (Ubuntu)
 ```bash
-# Windows
-# Descargar de: https://rustup.rs/
-
-# macOS/Linux
+# Instalar Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Recargar el shell
+source $HOME/.cargo/env
+
+# Verificar instalación
+rustc --version
 ```
 
 ### Paso 1: Iniciar Backend Python
@@ -108,12 +111,12 @@ npm run tauri dev
 ```
 
 ### Características de la App Tauri
-- ✅ Interfaz moderna con React
-- ✅ Visualización en tiempo real de landmarks
-- ✅ Panel de estadísticas
-- ✅ Conexión WebSocket automática
-- ✅ Modo oscuro/claro
-- ✅ Multiplataforma (Windows, macOS, Linux)
+- Interfaz moderna con React
+- Visualización en tiempo real de landmarks
+- Panel de estadísticas
+- Conexión WebSocket automática
+- Modo oscuro/claro
+- Optimizado para Ubuntu/Linux
 
 ---
 

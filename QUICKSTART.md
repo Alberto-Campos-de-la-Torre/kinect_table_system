@@ -1,73 +1,71 @@
-# 🚀 Guía de Inicio Rápido
+# Guia de Inicio Rapido (Ubuntu/Linux)
 
-## Instalación en 5 Pasos
+## Instalacion en 5 Pasos
 
-### 1️⃣ Clonar el Repositorio
+### 1. Clonar el Repositorio
 ```bash
 git clone https://github.com/tu-usuario/kinect_table_system.git
 cd kinect_table_system
 ```
 
-### 2️⃣ Crear Entorno Virtual
+### 2. Crear Entorno Virtual
 ```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# Linux/Mac
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 3️⃣ Instalar Dependencias
+### 3. Instalar Dependencias Python
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Instalar Drivers del Kinect
+### 4. Instalar Drivers del Kinect Xbox 360
 
-**Para Kinect Xbox 360 (v1):**
-
-Windows:
-1. Descargar [Kinect for Windows SDK 1.8](https://www.microsoft.com/en-us/download/details.aspx?id=40278)
-2. Instalar el SDK
-3. Instalar biblioteca Python:
 ```bash
-pip install freenect
-```
-
-Linux:
-```bash
+# Actualizar repositorios
 sudo apt-get update
-sudo apt-get install libfreenect-dev freenect python3-freenect
-pip install freenect
+
+# Instalar libfreenect y dependencias
+sudo apt-get install -y libfreenect-dev freenect libusb-1.0-0-dev python3-freenect
+
+# Agregar usuario al grupo plugdev para acceso al Kinect sin sudo
+sudo usermod -a -G plugdev $USER
+
+# Crear reglas udev para el Kinect
+sudo bash -c 'cat > /etc/udev/rules.d/51-kinect.rules << EOF
+# Kinect Motor
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02b0", MODE="0666"
+# Kinect Camera
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ae", MODE="0666"
+# Kinect Audio
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ad", MODE="0666"
+EOF'
+
+# Recargar reglas udev
+sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# IMPORTANTE: Cerrar sesion y volver a iniciar para aplicar cambios de grupo
 ```
 
-**Para Kinect Xbox ONE (v2):**
-
-Windows:
-1. Descargar [Kinect for Windows SDK 2.0](https://www.microsoft.com/en-us/download/details.aspx?id=44561)
-2. Instalar el SDK
-3. Instalar PyKinect2:
-```bash
-pip install git+https://github.com/Kinect/PyKinect2.git
-```
-
-> ⚠️ **IMPORTANTE:** PyKinect2 es SOLO para Kinect Xbox ONE (v2), NO funciona con Kinect Xbox 360
-
-### 5️⃣ Descargar Modelos
+### 5. Descargar Modelos
 ```bash
 python scripts/download_models.py
 ```
 
-## ✅ Verificar Instalación
+## Verificar Instalacion
 
-Ejecuta el sistema en modo prueba:
+### Verificar Kinect:
+```bash
+# Probar visualizacion del Kinect
+freenect-glview
+```
+
+### Ejecutar el sistema en modo prueba:
 ```bash
 python main.py --test
 ```
 
-## 📝 Primeros Pasos
+## Primeros Pasos
 
 ### Ejecutar el Sistema
 ```bash
@@ -79,62 +77,78 @@ python main.py
 python main.py --calibrate
 ```
 
-### Modo Demostración
+### Modo Demostracion
 ```bash
 python main.py --demo
 ```
 
-### Sin Kinect Físico (Simulación)
+### Sin Kinect Fisico (Simulacion con webcam)
 ```bash
 python main.py --simulation tu_video.mp4
 ```
 
-## 🎯 Próximos Pasos
+## Proximos Pasos
 
 1. Lee el [README.md](README.md) completo
-2. Revisa la [documentación](docs/)
+2. Revisa la [documentacion](docs/)
 3. Explora los [ejemplos](examples/)
-4. Únete a las [discusiones](https://github.com/tu-usuario/kinect_table_system/discussions)
 
-## ❓ Problemas Comunes
+## Problemas Comunes
 
-### "No module named 'pykinect2'" o "Wrong version"
-**Causa:** Estás usando PyKinect2 (para Kinect v2) pero tienes Kinect Xbox 360 (v1)
-
-**Solución para Kinect Xbox 360 (v1):**
+### "No module named 'freenect'" o biblioteca no encontrada
+**Solucion:**
 ```bash
-pip uninstall pykinect2
+sudo apt-get install libfreenect-dev freenect python3-freenect
 pip install freenect
 ```
 
-**Solución para Kinect Xbox ONE (v2):**
+### "Kinect not detected" o "Permission denied"
+**Soluciones:**
+1. Verificar conexion USB del Kinect (usar puerto USB 2.0 o 3.0)
+2. Verificar que el adaptador de corriente AC este conectado
+3. Aplicar reglas udev:
 ```bash
-pip install git+https://github.com/Kinect/PyKinect2.git
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+4. Cerrar sesion y volver a iniciar (para aplicar cambios de grupo)
+5. Probar con sudo temporalmente:
+```bash
+sudo freenect-glview
 ```
 
-### "Kinect not detected"
-**Solución:** 
-- Verifica qué Kinect tienes:
-  - **Xbox 360**: Sensor rectangular, necesita adaptador de corriente AC
-  - **Xbox ONE**: Sensor más grande y redondeado
-- Verifica que el SDK correcto esté instalado:
-  - Xbox 360 → SDK 1.8
-  - Xbox ONE → SDK 2.0
-- Revisa que los drivers estén actualizados en Device Manager
+### Error de permisos USB
+**Solucion:**
+```bash
+# Verificar que el usuario este en el grupo plugdev
+groups $USER
 
-### Error de CUDA
-**Solución:** Si no tienes GPU NVIDIA, ejecuta:
+# Si no aparece plugdev, agregarlo
+sudo usermod -a -G plugdev $USER
+
+# Cerrar sesion e iniciar de nuevo
+```
+
+### Error de CUDA (GPU no detectada)
+**Solucion:** Si no tienes GPU NVIDIA, ejecuta:
 ```bash
 python main.py --no-gpu
 ```
 
-## 📞 Soporte
+### La camara no se detecta (modo simulacion)
+**Solucion:**
+```bash
+# Agregar usuario al grupo video
+sudo usermod -a -G video $USER
 
-¿Necesitas ayuda? 
-- 📖 [Documentación completa](docs/)
-- 🐛 [Reportar un bug](https://github.com/tu-usuario/kinect_table_system/issues)
-- 💬 [Discusiones](https://github.com/tu-usuario/kinect_table_system/discussions)
+# Cerrar sesion e iniciar de nuevo
+```
+
+## Soporte
+
+Necesitas ayuda?
+- [Documentacion completa](docs/)
+- [Reportar un bug](https://github.com/tu-usuario/kinect_table_system/issues)
 
 ---
 
-¡Listo para comenzar! 🎉
+Listo para comenzar!

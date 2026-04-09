@@ -30,10 +30,10 @@ Sistema interactivo de reconocimiento de objetos y gestos utilizando Kinect Xbox
   - USB 3.0
 
 ### Software
-- Python 3.8 - 3.10
-- Windows 10/11 o Ubuntu 20.04+
-- Kinect for Windows SDK 2.0 (Windows) o libfreenect (Linux)
-- CUDA Toolkit (opcional, para aceleración GPU)
+- Ubuntu 20.04+ (recomendado Ubuntu 22.04 LTS o superior)
+- Python 3.8 - 3.11
+- libfreenect (driver para Kinect Xbox 360)
+- CUDA Toolkit (opcional, para aceleración GPU con NVIDIA)
 
 ## 🚀 Instalación
 
@@ -45,11 +45,6 @@ cd kinect_table_system
 
 ### 2. Crear entorno virtual
 ```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# Linux/Mac
 python3 -m venv venv
 source venv/bin/activate
 ```
@@ -59,15 +54,38 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Instalar drivers del Kinect
+### 4. Instalar drivers del Kinect (Ubuntu)
 
-#### Windows:
-- Descargar e instalar [Kinect for Windows SDK 2.0](https://www.microsoft.com/en-us/download/details.aspx?id=44561)
-
-#### Linux:
 ```bash
-sudo apt-get install libfreenect-dev
-sudo apt-get install freenect
+# Actualizar repositorios
+sudo apt-get update
+
+# Instalar libfreenect y dependencias
+sudo apt-get install -y libfreenect-dev freenect libusb-1.0-0-dev
+
+# Agregar usuario al grupo plugdev para acceso al Kinect sin sudo
+sudo usermod -a -G plugdev $USER
+
+# Crear reglas udev para el Kinect (permite acceso sin root)
+sudo bash -c 'cat > /etc/udev/rules.d/51-kinect.rules << EOF
+# Kinect Motor
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02b0", MODE="0666"
+# Kinect Camera
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ae", MODE="0666"
+# Kinect Audio
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ad", MODE="0666"
+EOF'
+
+# Recargar reglas udev
+sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# IMPORTANTE: Cerrar sesión y volver a iniciar para aplicar cambios de grupo
+```
+
+**Verificar instalación:**
+```bash
+# Probar que el Kinect sea detectado
+freenect-glview
 ```
 
 ### 5. Descargar modelos pre-entrenados
@@ -219,10 +237,11 @@ Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) par
 
 ## 🔗 Enlaces Útiles
 
-- [Documentación de Kinect SDK](https://developer.microsoft.com/en-us/windows/kinect)
+- [OpenKinect (libfreenect)](https://openkinect.org/)
+- [libfreenect GitHub](https://github.com/OpenKinect/libfreenect)
 - [OpenCV Documentation](https://docs.opencv.org/)
 - [MediaPipe Hands](https://google.github.io/mediapipe/solutions/hands.html)
-- [YOLOv5 GitHub](https://github.com/ultralytics/yolov5)
+- [YOLOv8 Ultralytics](https://github.com/ultralytics/ultralytics)
 
 ---
 
