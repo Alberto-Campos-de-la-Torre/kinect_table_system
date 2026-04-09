@@ -1,187 +1,191 @@
 """
-Script de diagnÃ³stico para Kinect SDK 1.8
-=========================================
+Script de diagnostico para Kinect en Ubuntu/Linux
+=================================================
+Verifica la instalacion de libfreenect y conectividad del Kinect Xbox 360
 """
 
-import ctypes
 import os
 import sys
-
-# Forzar UTF-8 en la salida
-if sys.platform == 'win32':
-    sys.stdout.reconfigure(encoding='utf-8')
+import ctypes
+from ctypes import c_void_p, c_int, POINTER, byref
 
 print("=" * 60)
-print("DIAGNOSTICO DE KINECT SDK 1.8")
+print("DIAGNOSTICO DE KINECT - UBUNTU/LINUX")
 print("=" * 60)
 
-# Verificar arquitectura de Python
+# Verificar sistema operativo
 print(f"\nPython: {sys.version}")
-print(f"Arquitectura: {'64-bit' if sys.maxsize > 2**32 else '32-bit'}")
+print(f"Plataforma: {sys.platform}")
 
-# Buscar DLLs
-print("\n--- Buscando DLLs de Kinect ---")
+if sys.platform == 'win32':
+    print("\n[ERROR] Este script es para Ubuntu/Linux")
+    print("        En Windows usa el SDK de Kinect para Windows")
+    sys.exit(1)
 
-dlls_to_check = [
-    (r"C:\Windows\System32\Kinect10.dll", "Kinect10.dll (System32)"),
-    (r"C:\Windows\SysWOW64\Kinect10.dll", "Kinect10.dll (SysWOW64)"),
-    (r"C:\Windows\System32\Kinect20.dll", "Kinect20.dll (SDK 2.0)"),
-]
+# Verificar bibliotecas del sistema
+print("\n--- Verificando bibliotecas del sistema ---")
 
-for path, name in dlls_to_check:
-    if os.path.exists(path):
-        size = os.path.getsize(path)
-        print(f"  [OK] {name}: {path} ({size:,} bytes)")
-    else:
-        print(f"  [NO] {name}: No encontrado")
+lib_paths = {
+    'libfreenect': [
+        '/usr/lib/libfreenect.so',
+        '/usr/lib/x86_64-linux-gnu/libfreenect.so',
+        '/usr/local/lib/libfreenect.so',
+        '/usr/lib/libfreenect.so.0',
+        '/usr/lib/x86_64-linux-gnu/libfreenect.so.0',
+    ],
+    'libusb': [
+        '/usr/lib/libusb-1.0.so',
+        '/usr/lib/x86_64-linux-gnu/libusb-1.0.so',
+        '/usr/lib/libusb-1.0.so.0',
+        '/usr/lib/x86_64-linux-gnu/libusb-1.0.so.0',
+    ]
+}
 
-# Verificar variables de entorno
-print("\n--- Variables de entorno ---")
-env_vars = ["KINECTSDK10_DIR", "KINECTSDK20_DIR"]
-for var in env_vars:
-    value = os.environ.get(var, "No definida")
-    print(f"  {var}: {value}")
+found_libs = {}
 
-# Intentar cargar el SDK
-print("\n--- Probando SDK 1.8 ---")
+for lib_name, paths in lib_paths.items():
+    found = False
+    for path in paths:
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            print(f"  [OK] {lib_name}: {path} ({size:,} bytes)")
+            found_libs[lib_name] = path
+            found = True
+            break
+    if not found:
+        print(f"  [NO] {lib_name}: No encontrado")
+        if lib_name == 'libfreenect':
+            print("       Instalar con: sudo apt-get install libfreenect-dev freenect")
+        elif lib_name == 'libusb':
+            print("       Instalar con: sudo apt-get install libusb-1.0-0-dev")
 
+# Verificar reglas udev
+print("\n--- Verificando reglas udev ---")
+udev_file = '/etc/udev/rules.d/51-kinect.rules'
+if os.path.exists(udev_file):
+    print(f"  [OK] Reglas udev encontradas: {udev_file}")
+else:
+    print(f"  [NO] Reglas udev no encontradas")
+    print("       Crear con:")
+    print("       sudo bash -c 'cat > /etc/udev/rules.d/51-kinect.rules << EOF")
+    print('       SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02b0", MODE="0666"')
+    print('       SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ae", MODE="0666"')
+    print('       SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ad", MODE="0666"')
+    print("       EOF'")
+
+# Verificar grupos del usuario
+print("\n--- Verificando grupos del usuario ---")
+import grp
+user_groups = [g.gr_name for g in grp.getgrall() if os.getlogin() in g.gr_mem]
 try:
-    dll_path = r"C:\Windows\System32\Kinect10.dll"
-    if not os.path.exists(dll_path):
-        dll_path = r"C:\Windows\SysWOW64\Kinect10.dll"
-    
-    kinect = ctypes.WinDLL(dll_path)
-    print(f"  [OK] DLL cargada: {dll_path}")
-    
-    # Contar sensores
-    NuiGetSensorCount = kinect.NuiGetSensorCount
-    NuiGetSensorCount.argtypes = [ctypes.POINTER(ctypes.c_int)]
-    NuiGetSensorCount.restype = ctypes.c_long
-    
-    count = ctypes.c_int(0)
-    hr = NuiGetSensorCount(ctypes.byref(count))
-    
-    if hr == 0:
-        print(f"  [OK] Sensores detectados: {count.value}")
-    else:
-        print(f"  [ERROR] Error contando sensores: 0x{hr & 0xFFFFFFFF:08X}")
-    
-    if count.value > 0:
-        # Intentar crear sensor
-        print("\n--- Intentando crear sensor ---")
-        
-        NuiCreateSensorByIndex = kinect.NuiCreateSensorByIndex
-        NuiCreateSensorByIndex.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
-        NuiCreateSensorByIndex.restype = ctypes.c_long
-        
-        sensor_ptr = ctypes.c_void_p()
-        hr = NuiCreateSensorByIndex(0, ctypes.byref(sensor_ptr))
-        
-        if hr == 0:
-            print(f"  [OK] Sensor creado: {sensor_ptr.value}")
-            
-            # Obtener estado del sensor
-            # NuiStatus estÃ¡ en la vtable del sensor
-            vtable_ptr = ctypes.cast(sensor_ptr, ctypes.POINTER(ctypes.c_void_p))
-            vtable = ctypes.cast(vtable_ptr[0], ctypes.POINTER(ctypes.c_void_p * 25)).contents
-            
-            # NuiStatus estÃ¡ en Ã­ndice 4
-            try:
-                NuiStatus = ctypes.cast(
-                    vtable[4],
-                    ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
-                )
-                status = NuiStatus(sensor_ptr)
-                print(f"  Estado del sensor: 0x{status & 0xFFFFFFFF:08X}")
-                
-                if status == 0:
-                    print("  [OK] Sensor listo para usar")
-                elif status == 0x83010001:
-                    print("  [WARN] Sensor no conectado")
-                elif status == 0x83010002:
-                    print("  [WARN] Sensor no inicializado")
-                else:
-                    print(f"  [WARN] Estado desconocido")
-            except Exception as e:
-                print(f"  [WARN] No se pudo obtener estado: {e}")
-            
-            # Intentar inicializar con diferentes flags
-            print("\n--- Probando inicializaciÃ³n ---")
-            
-            flag_tests = [
-                (0x00000010, "Solo COLOR"),
-                (0x00000020, "Solo DEPTH"),
-                (0x00000030, "COLOR + DEPTH"),
-            ]
-            
-            for flags, desc in flag_tests:
-                # NuiInitialize del sensor estÃ¡ en Ã­ndice 3
-                try:
-                    NuiSensorInit = ctypes.cast(
-                        vtable[3],
-                        ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_uint32)
-                    )
-                    hr = NuiSensorInit(sensor_ptr, flags)
-                    
-                    if hr == 0:
-                        print(f"  [OK] {desc}: OK")
-                        
-                        # Shutdown
-                        NuiSensorShutdown = ctypes.cast(
-                            vtable[5],
-                            ctypes.CFUNCTYPE(None, ctypes.c_void_p)
-                        )
-                        NuiSensorShutdown(sensor_ptr)
-                    else:
-                        hr_unsigned = hr & 0xFFFFFFFF
-                        print(f"  [ERROR] {desc}: 0x{hr_unsigned:08X}")
-                except Exception as e:
-                    print(f"  [ERROR] {desc}: Error - {e}")
-            
-            # Liberar sensor
-            Release = ctypes.cast(
-                vtable[2],
-                ctypes.CFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)
-            )
-            Release(sensor_ptr)
-            
-        else:
-            hr_unsigned = hr & 0xFFFFFFFF
-            print(f"  [ERROR] Error creando sensor: 0x{hr_unsigned:08X}")
-    
-    # Probar NuiInitialize global
-    print("\n--- Probando NuiInitialize global ---")
-    
-    NuiInitialize = kinect.NuiInitialize
-    NuiInitialize.argtypes = [ctypes.c_uint32]
-    NuiInitialize.restype = ctypes.c_long
-    
-    NuiShutdown = kinect.NuiShutdown
-    NuiShutdown.argtypes = []
-    NuiShutdown.restype = None
-    
-    for flags, desc in [(0x10, "COLOR"), (0x20, "DEPTH"), (0x30, "COLOR+DEPTH")]:
-        hr = NuiInitialize(flags)
-        if hr == 0:
-            print(f"  [OK] NuiInitialize({desc}): OK")
-            NuiShutdown()
-        else:
-            hr_unsigned = hr & 0xFFFFFFFF
-            print(f"  [ERROR] NuiInitialize({desc}): 0x{hr_unsigned:08X}")
+    user_groups.append(grp.getgrgid(os.getgid()).gr_name)
+except:
+    pass
 
+required_groups = ['plugdev', 'video']
+for group in required_groups:
+    if group in user_groups:
+        print(f"  [OK] Usuario en grupo: {group}")
+    else:
+        print(f"  [NO] Usuario NO en grupo: {group}")
+        print(f"       Agregar con: sudo usermod -a -G {group} $USER")
+
+# Verificar dispositivos USB conectados
+print("\n--- Verificando dispositivos USB (Kinect) ---")
+try:
+    import subprocess
+    result = subprocess.run(['lsusb'], capture_output=True, text=True)
+    kinect_found = False
+
+    # IDs del Kinect Xbox 360
+    kinect_ids = ['045e:02b0', '045e:02ae', '045e:02ad']
+
+    for line in result.stdout.split('\n'):
+        for kid in kinect_ids:
+            if kid in line.lower():
+                print(f"  [OK] Kinect detectado: {line.strip()}")
+                kinect_found = True
+
+    if not kinect_found:
+        print("  [NO] Kinect no detectado en USB")
+        print("       Verificar:")
+        print("       - El Kinect esta conectado via USB")
+        print("       - El adaptador de corriente AC esta conectado")
+        print("       - El LED del Kinect esta encendido")
 except Exception as e:
-    print(f"  [ERROR] Error: {e}")
-    import traceback
-    traceback.print_exc()
+    print(f"  [ERROR] No se pudo verificar USB: {e}")
+
+# Intentar cargar libfreenect
+print("\n--- Probando libfreenect ---")
+
+if 'libfreenect' not in found_libs:
+    print("  [ERROR] libfreenect no encontrado, no se puede continuar")
+else:
+    try:
+        freenect = ctypes.CDLL(found_libs['libfreenect'])
+        print(f"  [OK] libfreenect cargado: {found_libs['libfreenect']}")
+
+        # Configurar funciones
+        freenect.freenect_init.argtypes = [POINTER(c_void_p), c_void_p]
+        freenect.freenect_init.restype = c_int
+        freenect.freenect_num_devices.argtypes = [c_void_p]
+        freenect.freenect_num_devices.restype = c_int
+        freenect.freenect_shutdown.argtypes = [c_void_p]
+        freenect.freenect_shutdown.restype = c_int
+
+        # Inicializar contexto
+        ctx = c_void_p()
+        ret = freenect.freenect_init(byref(ctx), None)
+
+        if ret >= 0:
+            print("  [OK] Contexto freenect inicializado")
+
+            # Contar dispositivos
+            num_devices = freenect.freenect_num_devices(ctx)
+            print(f"  [OK] Dispositivos Kinect encontrados: {num_devices}")
+
+            if num_devices > 0:
+                print("\n  *** KINECT LISTO PARA USAR ***")
+            else:
+                print("\n  [WARN] No hay Kinect conectado")
+                print("         Verificar conexion USB y alimentacion")
+
+            # Cerrar contexto
+            freenect.freenect_shutdown(ctx)
+            print("  [OK] Contexto cerrado")
+        else:
+            print(f"  [ERROR] Error inicializando freenect: {ret}")
+            print("         Puede ser un problema de permisos USB")
+            print("         Intentar: sudo python3 test_kinect_sdk.py")
+
+    except Exception as e:
+        print(f"  [ERROR] Error cargando libfreenect: {e}")
+        import traceback
+        traceback.print_exc()
+
+# Verificar freenect-glview
+print("\n--- Verificando herramientas de freenect ---")
+try:
+    import subprocess
+    result = subprocess.run(['which', 'freenect-glview'], capture_output=True, text=True)
+    if result.returncode == 0:
+        print(f"  [OK] freenect-glview: {result.stdout.strip()}")
+        print("       Ejecutar: freenect-glview (para probar visualizacion)")
+    else:
+        print("  [NO] freenect-glview no encontrado")
+        print("       Instalar con: sudo apt-get install freenect")
+except Exception as e:
+    print(f"  [ERROR] No se pudo verificar freenect-glview: {e}")
 
 print("\n" + "=" * 60)
-print("FIN DEL DIAGNÃ“STICO")
+print("FIN DEL DIAGNOSTICO")
 print("=" * 60)
 
-print("\n[INFO] POSIBLES SOLUCIONES:")
-print("  1. Reiniciar el PC")
-print("  2. Desinstalar SDK 2.0 si no lo necesitas")
-print("  3. Ejecutar 'Kinect for Windows Developer Toolkit v1.8'")
-print("  4. Reinstalar SDK 1.8")
-print("  5. Verificar en Device Manager que el Kinect aparece correctamente")
-
+print("\n[INFO] POSIBLES SOLUCIONES SI HAY PROBLEMAS:")
+print("  1. Instalar dependencias:")
+print("     sudo apt-get install libfreenect-dev freenect libusb-1.0-0-dev")
+print("  2. Crear reglas udev para permisos USB")
+print("  3. Agregar usuario a grupos: sudo usermod -a -G plugdev,video $USER")
+print("  4. Cerrar sesion e iniciar de nuevo")
+print("  5. Si persiste, probar con: sudo freenect-glview")
+print("")
