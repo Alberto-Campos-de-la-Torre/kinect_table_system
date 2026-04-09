@@ -58,6 +58,14 @@ from modules.interaction_engine import (
     InteractionEvent as EngineInteractionEvent
 )
 
+# Importar módulo de control del mouse
+from modules.mouse_control import (
+    MouseController,
+    MouseControlConfig,
+    MouseAction,
+    is_available as is_mouse_available
+)
+
 # TurboJPEG opcional
 try:
     from turbojpeg import TurboJPEG
@@ -154,7 +162,11 @@ class KinectTableSystem:
         # Motor de interacción
         self.interaction_engine = None
         self.enable_interactions = True  # Habilitar sistema de interacciones
-        
+
+        # Controlador del mouse
+        self.mouse_controller = None
+        self.enable_mouse_control = False  # Deshabilitado por defecto
+
         # Codificador (TurboJPEG si está disponible, sino OpenCV)
         self.jpeg_encoder = None
         if TURBO_AVAILABLE:
@@ -267,11 +279,25 @@ class KinectTableSystem:
         if self.enable_interactions:
             logger.info("Inicializando Interaction Engine...")
             self.interaction_engine = InteractionEngine()
-            # Configurar tamaño del frame para efecto espejo
-            self.interaction_engine.set_frame_size(640, 480)
+            # Configurar tamaño del frame según el Kinect (v1: 640x480, v2: 1920x1080)
+            kinect_rgb_res = self.kinect.rgb_resolution if self.kinect else (640, 480)
+            self.interaction_engine.set_frame_size(kinect_rgb_res[0], kinect_rgb_res[1])
             logger.info("✅ Interaction Engine inicializado (modo espejo activado)")
             logger.info(f"   Mapeos de gestos: {len(self.interaction_engine.action_mapper.mappings)}")
-        
+
+        # Inicializar controlador del mouse
+        logger.info("Inicializando Mouse Controller...")
+        if is_mouse_available():
+            self.mouse_controller = MouseController()
+            # Usar resolución real del Kinect (v1: 640x480, v2: 1920x1080)
+            kinect_rgb_res = self.kinect.rgb_resolution if self.kinect else (640, 480)
+            self.mouse_controller.set_input_resolution(kinect_rgb_res[0], kinect_rgb_res[1])
+            logger.info("✅ Mouse Controller inicializado (pyautogui disponible)")
+            logger.info(f"   Resolución entrada: {kinect_rgb_res[0]}x{kinect_rgb_res[1]}")
+            logger.info("   Gesto PINCH = clic izquierdo")
+        else:
+            logger.warning("⚠️ Mouse Controller no disponible (instalar: pip install pyautogui)")
+
         logger.info("=" * 60)
         print()
     
@@ -520,7 +546,39 @@ class KinectTableSystem:
                 interaction_data['events'] = [
                     e.to_dict() for e in self.interaction_engine.get_pending_events()
                 ]
-        
+
+            # Procesar control del mouse si está habilitado
+            if self.enable_mouse_control and self.mouse_controller:
+                for hand in hands_data:
+                    # Convertir landmarks a formato dict para el controlador
+                    landmarks_list = [
+                        {'x': lm.x, 'y': lm.y, 'z': lm.z}
+                        for lm in hand.landmarks
+                    ]
+
+                    # Obtener profundidad de la mano desde el Kinect
+                    hand_depth = self._get_hand_depth(
+                        kinect_frame.depth,
+                        hand.center,
+                        hand.bbox
+                    )
+
+                    # Procesar con el controlador táctil (usa PINCH para clic)
+                    mouse_result = self.mouse_controller.process_hand(
+                        landmarks=landmarks_list,
+                        handedness=hand.handedness,
+                        hand_depth=hand_depth,
+                        confidence=hand.confidence,
+                        gesture=hand.gesture.value if hand.gesture else ""
+                    )
+
+                    # Agregar info del mouse al interaction_data
+                    if interaction_data is None:
+                        interaction_data = {}
+                    if 'mouse' not in interaction_data:
+                        interaction_data['mouse'] = {}
+                    interaction_data['mouse'][hand.handedness] = mouse_result
+
         self.stats['frames_processed'] += 1
         
         result = {
@@ -672,6 +730,11 @@ class KinectTableSystem:
                     'interaction': {
                         'enabled': self.enable_interactions,
                         'gesture_mappings': len(self.interaction_engine.action_mapper.mappings) if self.interaction_engine else 0
+                    },
+                    'mouse_control': {
+                        'available': is_mouse_available(),
+                        'enabled': self.enable_mouse_control,
+                        'state': self.mouse_controller.get_state() if self.mouse_controller else None
                     }
                 }
             }))
@@ -682,7 +745,11 @@ class KinectTableSystem:
                     data = json.loads(message)
                     await self.handle_message(websocket, data)
                 except json.JSONDecodeError:
-                    logger.error(f"Mensaje inválido: {message}")
+                    logger.error(f"Mensaje inválido (JSON): {message}")
+                except Exception as e:
+                    # Capturar cualquier excepción inesperada en handle_message
+                    # para que NO cierre la conexión WebSocket.
+                    logger.error(f"Error procesando mensaje '{data.get('type', '?')}': {e}", exc_info=True)
         
         except websockets.exceptions.ConnectionClosed:
             logger.info("Conexión cerrada")
@@ -755,7 +822,114 @@ class KinectTableSystem:
                 'enabled': self.enable_interactions
             }))
             logger.info(f"🎮 Interacciones: {'activadas' if self.enable_interactions else 'desactivadas'}")
-        
+
+        # ========== Handlers de Control del Mouse ==========
+
+        elif msg_type == 'toggle_mouse_control':
+            if not self.mouse_controller:
+                await websocket.send(json.dumps({
+                    'type': 'mouse_control_error',
+                    'error': 'Mouse controller no disponible. Instalar: pip install pyautogui'
+                }))
+                return
+
+            self.enable_mouse_control = not self.enable_mouse_control
+            if self.enable_mouse_control:
+                self.mouse_controller.enable()
+            else:
+                self.mouse_controller.disable()
+
+            await websocket.send(json.dumps({
+                'type': 'mouse_control_toggled',
+                'enabled': self.enable_mouse_control,
+                'state': self.mouse_controller.get_state()
+            }))
+            logger.info(f"🖱️ Control del mouse: {'ACTIVADO' if self.enable_mouse_control else 'DESACTIVADO'}")
+
+        elif msg_type == 'get_mouse_state':
+            if self.mouse_controller:
+                await websocket.send(json.dumps({
+                    'type': 'mouse_state',
+                    'enabled': self.enable_mouse_control,
+                    'state': self.mouse_controller.get_state()
+                }))
+            else:
+                await websocket.send(json.dumps({
+                    'type': 'mouse_state',
+                    'enabled': False,
+                    'available': False,
+                    'error': 'Mouse controller no disponible'
+                }))
+
+        elif msg_type == 'set_mouse_sensitivity':
+            # Sensibilidad ahora controla el suavizado (menor suavizado = más sensible)
+            if self.mouse_controller:
+                sensitivity = data.get('sensitivity', 1.5)
+                # Mayor sensibilidad = menor suavizado
+                smoothing = max(0.1, min(0.9, 1.0 - (sensitivity / 3.0)))
+                self.mouse_controller.set_smoothing(smoothing)
+                await websocket.send(json.dumps({
+                    'type': 'mouse_sensitivity_changed',
+                    'sensitivity': sensitivity,
+                    'smoothing': self.mouse_controller.config.smoothing
+                }))
+
+        elif msg_type == 'set_mouse_smoothing':
+            if self.mouse_controller:
+                smoothing = data.get('smoothing', 0.7)
+                self.mouse_controller.set_smoothing(smoothing)
+                await websocket.send(json.dumps({
+                    'type': 'mouse_smoothing_changed',
+                    'smoothing': self.mouse_controller.config.smoothing
+                }))
+
+        elif msg_type == 'recalibrate_mouse':
+            if self.mouse_controller:
+                self.mouse_controller.recalibrate()
+                await websocket.send(json.dumps({
+                    'type': 'mouse_recalibrated',
+                    'message': 'Estado del mouse reseteado'
+                }))
+                logger.info("🖱️ Estado del mouse reseteado")
+
+        elif msg_type == 'set_mouse_flip':
+            # Configurar flip de ejes (debe coincidir con calibración del video)
+            if self.mouse_controller:
+                flip_x = data.get('flip_x')
+                flip_y = data.get('flip_y')
+                self.mouse_controller.set_flip(flip_x, flip_y)
+                await websocket.send(json.dumps({
+                    'type': 'mouse_flip_changed',
+                    'flip': {
+                        'x': self.mouse_controller.config.flip_x,
+                        'y': self.mouse_controller.config.flip_y
+                    }
+                }))
+                logger.info(f"🖱️ Flip del mouse: X={self.mouse_controller.config.flip_x}, Y={self.mouse_controller.config.flip_y}")
+
+        elif msg_type == 'set_mouse_screen_area':
+            # Configurar área de pantalla activa (para múltiples monitores)
+            if self.mouse_controller:
+                x = data.get('x', 0)
+                y = data.get('y', 0)
+                width = data.get('width', 1920)
+                height = data.get('height', 1080)
+                self.mouse_controller.set_screen_area(x, y, width, height)
+                await websocket.send(json.dumps({
+                    'type': 'mouse_screen_area_changed',
+                    'area': {'x': x, 'y': y, 'width': width, 'height': height}
+                }))
+                logger.info(f"🖱️ Área de pantalla: ({x}, {y}) {width}x{height}")
+
+        elif msg_type == 'set_mouse_active_hand':
+            if self.mouse_controller:
+                hand = data.get('hand', 'Right')
+                self.mouse_controller.set_active_hand(hand)
+                await websocket.send(json.dumps({
+                    'type': 'mouse_active_hand_changed',
+                    'hand': self.mouse_controller.config.active_hand
+                }))
+
         elif msg_type == 'get_interaction_state':
             if self.interaction_engine:
                 state = self.interaction_engine.to_dict()
@@ -961,7 +1135,12 @@ class KinectTableSystem:
             }))
             
             if completed:
-                # Aplicar calibración
+                # Copiar el plano calculado al coordinate_mapper antes de guardar.
+                # advance_calibration_step() almacena el resultado en table_calibrator,
+                # pero _apply_and_save_calibration() guarda coordinate_mapper.calibration,
+                # que tiene table_plane=None si no se copia explícitamente.
+                self.coordinate_mapper.calibration.table_plane = self.table_calibrator.table_plane
+                self.coordinate_mapper.calibration.table_height = self.table_calibrator.table_height
                 await self._apply_and_save_calibration(websocket)
         
         elif msg_type == 'calibration_auto_plane':
@@ -1165,13 +1344,30 @@ class KinectTableSystem:
             )
         
         self.calibration_mode = False
-        
+
         logger.info(f"✅ Calibración guardada en: {self.calibration_file}")
-        
+
+        # Notificar a quien hizo la petición
         await websocket.send(json.dumps({
             'type': 'calibration_saved',
             'file': str(self.calibration_file)
         }))
+
+        # Difundir el estado actualizado a TODOS los clientes para que
+        # cualquier frontend conectado muestre is_calibrated=true sin tener
+        # que enviar calibration_get_status manualmente.
+        cal_status = self.coordinate_mapper.get_calibration_status()
+        broadcast_msg = json.dumps({
+            'type': 'calibration_status',
+            'calibration': cal_status,
+            'table': self.table_calibrator.get_status(),
+            'mode_active': self.calibration_mode,
+        })
+        if self.clients:
+            await asyncio.gather(
+                *[c.send(broadcast_msg) for c in self.clients],
+                return_exceptions=True,
+            )
     
     async def start(self):
         """Iniciar sistema"""
