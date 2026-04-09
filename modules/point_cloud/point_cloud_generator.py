@@ -135,7 +135,17 @@ class PointCloudGenerator:
         """
         if depth is None or depth.size == 0:
             return PointCloud(points=np.empty((0, 3)), num_points=0)
-        
+
+        # Verificar y corregir dimensiones de RGB si es necesario (para Kinect v2)
+        if rgb is not None:
+            h_d, w_d = depth.shape[:2]
+            h_r, w_r = rgb.shape[:2]
+            if (h_d != h_r) or (w_d != w_r):
+                try:
+                    import cv2
+                    rgb = cv2.resize(rgb, (w_d, h_d))
+                except ImportError:
+                    pass  # Si no hay cv2, no podemos redimensionar, fallara mas adelante        
         # Aplicar downsampling si es necesario
         if downsample > 1:
             depth = depth[::downsample, ::downsample]
