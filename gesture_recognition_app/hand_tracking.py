@@ -47,6 +47,8 @@ class HandData:
     confidence: float
     bbox: Tuple[int, int, int, int]  # x, y, width, height
     center: Tuple[float, float]
+    # Index fingertip position in pixel coords (landmark 8) – best for pointing
+    index_tip: Tuple[float, float] = (0.0, 0.0)
 
 
 class HandTracker:
@@ -114,10 +116,15 @@ class HandTracker:
             self.mp_drawing_styles = None
             self.mp_hands = None
         
-        # Historial para suavizado temporal
+        # Historial para suavizado temporal de gestos
         self.gesture_history: List[HandGesture] = []
         self.history_size = 5
-        
+
+        # Suavizado exponencial de posición por mano (key = handedness)
+        # alpha: 0 = muy suave, 1 = sin suavizado
+        self._smooth_alpha = 0.35
+        self._smooth_pos: dict = {}   # handedness -> (x, y)
+
         # Métricas
         self.fps = 0
         self.last_time = time.time()
@@ -221,23 +228,40 @@ class HandTracker:
         x_min, x_max = int(min(xs)), int(max(xs))
         y_min, y_max = int(min(ys)), int(max(ys))
         bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
-        
-        # Calcular centro
+
+        # Centro de la mano (promedio de todos los landmarks)
         center = (sum(xs) / len(xs), sum(ys) / len(ys))
-        
+
+        # Punta del dedo índice (landmark 8) – mejor para señalar
+        raw_tip_x = landmarks[8].x * w
+        raw_tip_y = landmarks[8].y * h
+
+        # Suavizado exponencial por mano para reducir jitter
+        alpha = self._smooth_alpha
+        if handedness in self._smooth_pos:
+            prev_x, prev_y = self._smooth_pos[handedness]
+            tip_x = alpha * raw_tip_x + (1.0 - alpha) * prev_x
+            tip_y = alpha * raw_tip_y + (1.0 - alpha) * prev_y
+        else:
+            tip_x, tip_y = raw_tip_x, raw_tip_y
+
+        self._smooth_pos[handedness] = (tip_x, tip_y)
+        index_tip = (tip_x, tip_y)
+
         # Reconocer gesto
         gesture = self._recognize_gesture(landmarks)
-        
+
         # Suavizado temporal del gesto
         gesture = self._smooth_gesture(gesture)
-        
+
         return HandData(
             landmarks=landmarks,
             handedness=handedness,
             gesture=gesture,
             confidence=confidence,
             bbox=bbox,
-            center=center
+            center=center,
+            index_tip=index_tip,
         )
     
     def _recognize_gesture(self, landmarks: List[HandLandmark]) -> HandGesture:
