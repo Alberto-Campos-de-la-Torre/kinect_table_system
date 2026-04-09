@@ -96,9 +96,9 @@ tauri-app/node_modules/
 # Build outputs
 dist/
 build/
-*.exe
-*.dmg
 *.AppImage
+*.deb
+*.snap
 
 # Environment variables
 .env

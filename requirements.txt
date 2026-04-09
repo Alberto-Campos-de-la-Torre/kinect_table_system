@@ -1,113 +1,120 @@
 # ===================================
 # KINECT TABLE SYSTEM - REQUIREMENTS
 # ===================================
-# Compatible con Python 3.11
+# Compatible con Python 3.8 - 3.11
+# Sistema operativo: Ubuntu 20.04+
 
 # Core Dependencies
-numpy>=1.24.0,<2.0  # Compatible con Python 3.11
-opencv-python>=4.8.0  # Compatible con Python 3.11
-opencv-contrib-python>=4.8.0  # Compatible con Python 3.11
-Pillow>=10.0.0  # Compatible con Python 3.11
+numpy>=1.24.0,<2.0
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+Pillow>=10.0.0
 
-# Kinect Interface
-# Para Kinect Xbox 360 (v1) se usa libfreenect compilado
-# Requiere:
-#   - libfreenect compilado (freenect.dll)
-#   - libusb-1.0 (libusb-1.0.dll)
-# Agregar al PATH:
-#   C:\Users\mayip\libfreenect\build\lib\Release
-#   C:\libusb\VS2022\MS64\dll
+# Kinect Interface (Ubuntu/Linux)
+# Requiere instalacion de sistema:
+#   sudo apt-get install libfreenect-dev freenect libusb-1.0-0-dev python3-freenect
+#
+# El modulo Python se instala con:
+#   pip install freenect
+# O usar el wrapper de ctypes incluido en modules/kinect_capture.py
 
 # Deep Learning & Object Detection
-torch>=2.1.0 --index-url https://download.pytorch.org/whl/cu121  # Con soporte CUDA 12.1 (Python 3.11)
-torchvision>=0.16.0 --index-url https://download.pytorch.org/whl/cu121  # Con soporte CUDA 12.1 (Python 3.11)
-ultralytics>=8.0.196  # YOLOv8 - Compatible con Python 3.11
-# tensorflow==2.14.0  # Descomentar si prefieres TensorFlow
+torch>=2.1.0
+torchvision>=0.16.0
+ultralytics>=8.0.196  # YOLOv8
+
+# Para GPU NVIDIA con CUDA (opcional):
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # Gesture Recognition
-mediapipe>=0.10.7  # Compatible con Python 3.11
+mediapipe>=0.10.7
 
 # 3D Processing
-open3d>=0.17.0  # Compatible con Python 3.11
+open3d>=0.17.0
 
 # Scientific Computing
-scipy>=1.11.0  # Compatible con Python 3.11
-scikit-learn>=1.3.0  # Compatible con Python 3.11
-scikit-image>=0.22.0  # Compatible con Python 3.11
+scipy>=1.11.0
+scikit-learn>=1.3.0
+scikit-image>=0.22.0
 
 # Visualization & GUI
-pygame>=2.5.0  # Compatible con Python 3.11
-# PyQt6>=6.6.0  # Descomentar si prefieres Qt - Compatible con Python 3.11
-matplotlib>=3.8.0  # Compatible con Python 3.11
-seaborn>=0.13.0  # Compatible con Python 3.11
+pygame>=2.5.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
 
 # Utilities
-tqdm>=4.66.0  # Compatible con Python 3.11
-pyyaml>=6.0.1  # Compatible con Python 3.11
-python-dotenv>=1.0.0  # Compatible con Python 3.11
-colorama>=0.4.6  # Compatible con Python 3.11
+tqdm>=4.66.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+colorama>=0.4.6
 
 # Testing
-pytest>=7.4.0  # Compatible con Python 3.11
-pytest-cov>=4.1.0  # Compatible con Python 3.11
+pytest>=7.4.0
+pytest-cov>=4.1.0
 
 # Logging & Monitoring
-loguru>=0.7.2  # Compatible con Python 3.13
+loguru>=0.7.2
 
 # Data Storage
-pandas>=2.1.0  # Compatible con Python 3.11
-# sqlalchemy>=2.0.23  # Si necesitas BD relacional - Compatible con Python 3.11
+pandas>=2.1.0
 
 # Image Processing Extras
-imageio>=2.31.0  # Compatible con Python 3.11
-pytesseract>=0.3.10  # Para OCR (opcional) - Compatible con Python 3.11
+imageio>=2.31.0
+pytesseract>=0.3.10  # Para OCR (opcional, requiere: sudo apt-get install tesseract-ocr)
 
-# Networking (para futuras extensiones)
-requests>=2.31.0  # Compatible con Python 3.11
-websockets>=12.0  # Compatible con Python 3.11
-aiohttp>=3.9.0  # Compatible con Python 3.11
+# Networking
+requests>=2.31.0
+websockets>=12.0
+aiohttp>=3.9.0
 
 # Development Tools
-black>=23.11.0  # Compatible con Python 3.11
-flake8>=6.1.0  # Compatible con Python 3.11
-pylint>=3.0.0  # Compatible con Python 3.11
-ipython>=8.17.0  # Compatible con Python 3.11
-jupyter>=1.0.0  # Compatible con Python 3.11
+black>=23.11.0
+flake8>=6.1.0
+pylint>=3.0.0
+ipython>=8.17.0
+jupyter>=1.0.0
 
 # Performance
-numba>=0.58.0  # JIT compilation para acelerar código - Compatible con Python 3.11
+numba>=0.58.0  # JIT compilation
 
 # ===================================
-# INSTALACIÓN ADICIONAL REQUERIDA
+# INSTALACION EN UBUNTU
 # ===================================
 #
-# AZURE KINECT DK (RECOMENDADO):
-# ------------------------------
-# 1. Instalar Azure Kinect SDK:
-#    https://learn.microsoft.com/azure/kinect-dk/sensor-sdk-download
-# 2. pip install pyk4a
-#    O alternativamente: pip install pykinect-azure
+# 1. DEPENDENCIAS DEL SISTEMA:
+# ----------------------------
+# sudo apt-get update
+# sudo apt-get install -y \
+#     libfreenect-dev \
+#     freenect \
+#     libusb-1.0-0-dev \
+#     python3-freenect \
+#     python3-dev \
+#     python3-pip \
+#     python3-venv \
+#     build-essential \
+#     cmake \
+#     tesseract-ocr
 #
-# KINECT XBOX ONE (v2):
-# ---------------------
-# 1. Instalar Kinect for Windows SDK 2.0:
-#    https://www.microsoft.com/en-us/download/details.aspx?id=44561
-# 2. pip install git+https://github.com/Kinect/PyKinect2.git
+# 2. PERMISOS PARA KINECT:
+# ------------------------
+# sudo usermod -a -G plugdev $USER
+# sudo usermod -a -G video $USER
 #
-# KINECT XBOX 360 (v1):
-# ---------------------
-# Windows:
-# 1. Instalar Kinect for Windows SDK 1.8:
-#    https://www.microsoft.com/en-us/download/details.aspx?id=40278
-# 2. El sistema usará el SDK directamente
+# Crear reglas udev:
+# sudo bash -c 'cat > /etc/udev/rules.d/51-kinect.rules << EOF
+# SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02b0", MODE="0666"
+# SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ae", MODE="0666"
+# SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02ad", MODE="0666"
+# EOF'
+# sudo udevadm control --reload-rules && sudo udevadm trigger
 #
-# Linux:
-# - sudo apt-get install libfreenect-dev freenect
-# - pip install freenect
+# 3. CUDA (opcional, para GPU NVIDIA):
+# ------------------------------------
+# Instalar CUDA Toolkit desde:
+# https://developer.nvidia.com/cuda-downloads
 #
-# CUDA (opcional, para GPU):
-# - Instalar CUDA Toolkit 12.1 o superior
-# - torch con CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# - Alternativa CUDA 11.8: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# Luego instalar PyTorch con CUDA:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 #
 # ===================================
