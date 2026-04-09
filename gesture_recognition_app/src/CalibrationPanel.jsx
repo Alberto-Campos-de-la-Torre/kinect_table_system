@@ -18,13 +18,17 @@ const CORNER_LABELS = {
   'bottom_left': '4. Esquina Inferior Izquierda'
 };
 
-export default function CalibrationPanel({ 
-  ws, 
-  isConnected, 
+export default function CalibrationPanel({
+  ws,
+  isConnected,
   calibrationData,
   frameRgb,
-  onClose 
+  frameDimensions,   // { w, h } – dimensiones reales del frame de captura
+  onClose
 }) {
+  // Dimensiones reales del frame (para escalar correctamente los clics)
+  const frameW = frameDimensions?.w || 640;
+  const frameH = frameDimensions?.h || 480;
   const [mode, setMode] = useState('menu');
   const [currentStep, setCurrentStep] = useState(0);
   const [capturedPoints, setCapturedPoints] = useState([]);
@@ -162,15 +166,15 @@ export default function CalibrationPanel({
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    
+
     const img = new Image();
     img.onload = () => {
       // Dibujar imagen
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      // Escala para convertir coordenadas
-      const scaleX = canvas.width / 640;
-      const scaleY = canvas.height / 480;
+
+      // Escala para convertir coordenadas de imagen real → canvas
+      const scaleX = canvas.width / frameW;
+      const scaleY = canvas.height / frameH;
       
       // Dibujar puntos ya capturados (en verde)
       capturedImagePoints.forEach((pt, i) => {
@@ -258,26 +262,27 @@ export default function CalibrationPanel({
       }
     };
     img.src = `data:image/jpeg;base64,${frameRgb}`;
-  }, [frameRgb, mode, selectedPoint, currentStep, capturedImagePoints]);
+  }, [frameRgb, mode, selectedPoint, currentStep, capturedImagePoints, frameW, frameH]);
 
   // Manejar clic en el canvas
   const handleCanvasClick = useCallback((e) => {
     if (mode !== 'manual' || currentStep >= 4) return;
-    
+
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
-    // Calcular posición en coordenadas de imagen (640x480)
+
+    // Mapear clic del canvas → coordenadas del frame real (frameW × frameH)
+    // El servidor escala internamente estos valores al espacio de imagen correcto.
     const x = Math.round((e.clientX - rect.left) * (640 / canvas.width));
     const y = Math.round((e.clientY - rect.top) * (480 / canvas.height));
-    
-    // Limitar a rango válido
+
+    // Limitar a rango válido (en espacio 640×480 normalizado; el servidor re-escala)
     const clampedX = Math.max(0, Math.min(639, x));
     const clampedY = Math.max(0, Math.min(479, y));
-    
+
     setSelectedPoint({ x: clampedX, y: clampedY });
-    setMessage(`Punto seleccionado (${clampedX}, ${clampedY}). Presiona "Capturar" para confirmar.`);
-  }, [mode, currentStep]);
+    setMessage(`Punto seleccionado (${clampedX}, ${clampedY}) → imagen real (~${Math.round(clampedX * frameW / 640)}, ${Math.round(clampedY * frameH / 480)}). Presiona "Capturar".`);
+  }, [mode, currentStep, frameW, frameH]);
 
   // Iniciar calibración manual
   const startManualCalibration = useCallback(() => {
@@ -418,13 +423,16 @@ export default function CalibrationPanel({
 
           <div className="calibration-info-box">
             <h4>📖 ¿Cómo funciona?</h4>
-            <p>La calibración manual te permite definir las 4 esquinas de tu área de trabajo:</p>
+            <p>La calibración calcula una <strong>homografía</strong> que corrige perspectiva y offsets:</p>
             <ol>
-              <li>Coloca un objeto (mano, marcador) en cada esquina de tu mesa</li>
-              <li>Haz clic en la imagen donde está el objeto</li>
-              <li>Presiona "Capturar" para registrar la posición 3D</li>
-              <li>Repite para las 4 esquinas</li>
+              <li>Apunta tu dedo índice a cada <strong>esquina de la pantalla/TV</strong></li>
+              <li>Haz clic en la imagen donde aparece la punta de tu dedo</li>
+              <li>Presiona "Capturar Punto" para registrar</li>
+              <li>Repite para las 4 esquinas (↖ ↗ ↘ ↙)</li>
             </ol>
+            <p style={{fontSize:'0.8em', opacity:0.7}}>
+              Frame actual: {frameW}×{frameH}px
+            </p>
           </div>
 
           <div className="calibration-options">
@@ -500,8 +508,8 @@ export default function CalibrationPanel({
 
               <div className="canvas-instructions">
                 <p><strong>Instrucciones:</strong></p>
-                <p>1️⃣ Coloca un objeto visible en la esquina de tu área de trabajo</p>
-                <p>2️⃣ Haz clic en la imagen EXACTAMENTE donde está el objeto</p>
+                <p>1️⃣ Apunta tu <strong>dedo índice</strong> a la esquina indicada de la pantalla</p>
+                <p>2️⃣ Haz clic en la imagen EXACTAMENTE donde ves la punta de tu dedo</p>
                 <p>3️⃣ Presiona "Capturar Punto" para registrar</p>
               </div>
 
@@ -538,7 +546,7 @@ export default function CalibrationPanel({
                   <li key={i}>
                     <span className="point-label">{CORNER_LABELS[CORNER_NAMES[i]].split('. ')[1]}:</span>
                     <span className="point-coords">
-                      Z={point[2].toFixed(3)}m (profundidad)
+                      img=({Math.round(point[0])}, {Math.round(point[1])})px
                     </span>
                   </li>
                 ))}

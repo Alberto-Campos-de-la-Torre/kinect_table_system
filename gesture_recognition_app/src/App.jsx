@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { appWindow } from '@tauri-apps/api/window';
 import './App.css';
 import PointCloudViewer from './PointCloudViewer';
 import CalibrationPanel from './CalibrationPanel';
@@ -35,7 +36,9 @@ function App() {
     gesturesEnabled: true,
     pointcloudEnabled: true,
     pointcloudColorMode: 'rgb',
-    interactionsEnabled: true
+    interactionsEnabled: true,
+    mouseControlEnabled: false,
+    mouseControlAvailable: false
   });
   
   // Datos de interacción
@@ -58,7 +61,17 @@ function App() {
   
   // Modo de visualización
   const [viewMode, setViewMode] = useState('rgb'); // 'rgb', 'depth', 'split', '3d'
-  
+
+  // Dimensiones reales del frame de captura (enviadas por el servidor)
+  // Necesarias para mapear coordenadas de mano a pantalla correctamente
+  const [frameDimensions, setFrameDimensions] = useState({ w: 640, h: 480 });
+
+  // Tamaño real de la ventana (se actualiza en cada resize)
+  const [windowSize, setWindowSize] = useState({
+    w: window.innerWidth,
+    h: window.innerHeight,
+  });
+
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
 
@@ -82,6 +95,12 @@ function App() {
         console.log('Conectado al Kinect Table System');
         setConnected(true);
         setError(null);
+        // Informar al backend del tamaño real de la ventana
+        ws.send(JSON.stringify({
+          type: 'set_screen_size',
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }));
       };
 
       ws.onmessage = (event) => {
@@ -92,10 +111,15 @@ function App() {
             // Actualizar frames
             if (data.rgb) setFrameRgb(data.rgb);
             if (data.depth) setFrameDepth(data.depth);
-            
+
+            // Guardar dimensiones reales del frame para mapeo correcto de coordenadas
+            if (data.frame_width && data.frame_height) {
+              setFrameDimensions({ w: data.frame_width, h: data.frame_height });
+            }
+
             // Actualizar nube de puntos
             if (data.pointcloud) setPointcloudData(data.pointcloud);
-            
+
             // Actualizar detecciones
             setObjects(data.objects || []);
             setHands(data.hands || []);
@@ -120,9 +144,11 @@ function App() {
                 gesturesEnabled: data.config.gestures_enabled,
                 pointcloudEnabled: data.config.pointcloud_enabled,
                 pointcloudColorMode: data.config.pointcloud_color_mode || 'rgb',
-                interactionsEnabled: data.config.interactions_enabled ?? true
+                interactionsEnabled: data.config.interactions_enabled ?? true,
+                mouseControlEnabled: data.config.mouse_control?.enabled ?? false,
+                mouseControlAvailable: data.config.mouse_control?.available ?? false
               });
-              
+
               // Cargar estado de calibración
               if (data.config.calibration) {
                 setCalibrationData(data.config.calibration);
@@ -133,9 +159,17 @@ function App() {
           else if (data.type === 'interactions_toggled') {
             setConfig(prev => ({ ...prev, interactionsEnabled: data.enabled }));
           }
-          // Actualizar estado de calibración cuando se guarda
+          // Manejar toggle de control del mouse
+          else if (data.type === 'mouse_control_toggled') {
+            setConfig(prev => ({ ...prev, mouseControlEnabled: data.enabled }));
+            console.log('Control del mouse:', data.enabled ? 'ACTIVADO' : 'DESACTIVADO');
+          }
+          // Actualizar estado de calibración cuando se guarda.
+          // El servidor también difunde calibration_status automáticamente,
+          // pero marcamos is_calibrated=true aquí de inmediato como feedback rápido.
           else if (data.type === 'calibration_saved') {
-            // Solicitar estado actualizado
+            setCalibrationData(prev => ({ ...prev, is_calibrated: true }));
+            // Pedir estado completo para actualizar todos los campos
             if (wsRef.current) {
               wsRef.current.send(JSON.stringify({ type: 'calibration_get_status' }));
             }
@@ -154,6 +188,9 @@ function App() {
               has_intrinsics: data.calibration?.has_intrinsics || false,
               flip: data.calibration?.flip || { x: false, y: true, z: false }
             });
+          }
+          else if (data.type === 'calibration_reset_complete') {
+            setCalibrationData(prev => ({ ...prev, is_calibrated: false }));
           }
         } catch (err) {
           console.error('Error procesando mensaje:', err);
@@ -218,33 +255,66 @@ function App() {
     setConfig(prev => ({ ...prev, interactionsEnabled: !prev.interactionsEnabled }));
   };
 
+  const toggleMouseControl = () => {
+    sendMessage('toggle_mouse_control');
+    setConfig(prev => ({ ...prev, mouseControlEnabled: !prev.mouseControlEnabled }));
+  };
+
   // ==========================================
   // Funciones de Pantalla Completa
   // ==========================================
   
-  const enterFullscreen = useCallback((mode = 'rgb') => {
+  const enterFullscreen = useCallback(async (mode = 'rgb') => {
+    console.log('[Fullscreen] Entrando a modo:', mode);
     setFullscreenMode(mode);
-    
-    const elem = appContainerRef.current || document.documentElement;
-    
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen();
-    } else if (elem.webkitRequestFullscreen) {
-      elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) {
-      elem.msRequestFullscreen();
+
+    // 1. Intentar API nativa del navegador (funciona en Tauri webview y browsers)
+    try {
+      const el = document.documentElement;
+      if (el.requestFullscreen) {
+        await el.requestFullscreen();
+        setIsFullscreen(true);
+        console.log('[Fullscreen] Éxito con Browser API');
+        return;
+      } else if (el.webkitRequestFullscreen) {
+        await el.webkitRequestFullscreen();
+        setIsFullscreen(true);
+        return;
+      }
+    } catch (err) {
+      console.warn('[Fullscreen] Browser API falló:', err);
     }
-    
-    setIsFullscreen(true);
+
+    // 2. Fallback: API de Tauri
+    try {
+      console.log('[Fullscreen] Intentando Tauri API');
+      await appWindow.setFullscreen(true);
+      setIsFullscreen(true);
+      console.log('[Fullscreen] Éxito con Tauri API');
+    } catch (err) {
+      console.error('[Fullscreen] Tauri API falló:', err);
+      // 3. Último recurso: modo simulado (React state only)
+      setIsFullscreen(true);
+    }
   }, []);
 
-  const exitFullscreen = useCallback(() => {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) {
-      document.msExitFullscreen();
+  const exitFullscreen = useCallback(async () => {
+    // 1. Intentar salir con API nativa
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+        await document.webkitExitFullscreen();
+      }
+    } catch (err) {
+      console.warn('[Fullscreen] Browser exit falló:', err);
+    }
+
+    // 2. También notificar a Tauri
+    try {
+      await appWindow.setFullscreen(false);
+    } catch (err) {
+      console.warn('[Fullscreen] Tauri exit falló:', err);
     }
     setIsFullscreen(false);
   }, []);
@@ -257,21 +327,36 @@ function App() {
     }
   }, [isFullscreen, enterFullscreen, exitFullscreen]);
 
-  // Escuchar eventos de fullscreen
+  // Escuchar eventos de fullscreen (nativos del navegador + Tauri)
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
-      setIsFullscreen(isFS);
+    // Listener nativo: se dispara cuando el usuario sale de fullscreen con ESC
+    const handleNativeFullscreenChange = () => {
+      const isNativeFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      if (!isNativeFS) {
+        setIsFullscreen(false);
+      }
     };
+    document.addEventListener('fullscreenchange', handleNativeFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleNativeFullscreenChange);
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('msfullscreenchange', handleFullscreenChange);
+    // Listener de Tauri (complementario)
+    let unlisten;
+    const setupTauriListener = async () => {
+      try {
+        unlisten = await appWindow.onResized(async () => {
+          const isFS = await appWindow.isFullscreen();
+          setIsFullscreen(isFS);
+        });
+      } catch (err) {
+        console.warn('[Fullscreen] No se pudo configurar listener Tauri:', err);
+      }
+    };
+    setupTauriListener();
 
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('fullscreenchange', handleNativeFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleNativeFullscreenChange);
+      if (unlisten) unlisten();
     };
   }, []);
 
@@ -291,6 +376,22 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen, exitFullscreen, toggleFullscreen, viewMode]);
+
+  // Rastrear tamaño real de la ventana y notificar al backend
+  useEffect(() => {
+    const handleResize = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      setWindowSize({ w, h });
+      // Notificar al backend para que registre el tamaño real de pantalla
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'set_screen_size', width: w, height: h }));
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const getGestureIcon = (gesture) => {
     const icons = {
@@ -404,31 +505,58 @@ function App() {
               <div className="projection-canvas">
                 {/* Indicadores de manos detectadas */}
                 {hands.map((hand, idx) => {
-                  // Obtener coordenadas del centro de la mano
-                  // El centro puede venir como array [x, y] o como objeto {x, y}
-                  let handX = 0, handY = 0;
-                  
-                  if (hand.center) {
-                    if (Array.isArray(hand.center)) {
-                      handX = hand.center[0] || 0;
-                      handY = hand.center[1] || 0;
-                    } else if (typeof hand.center === 'object') {
-                      handX = hand.center.x || 0;
-                      handY = hand.center.y || 0;
+                  /*
+                   * Prioridad de posición del cursor (de más a menos precisa):
+                   *
+                   * 1. screen_pos  – posición ya transformada por homografía en el servidor.
+                   *    Coordenadas en espacio de pantalla (0..screenW × 0..screenH).
+                   *    Usamos porcentaje sobre el tamaño real de la ventana.
+                   *
+                   * 2. index_tip   – punta del índice (landmark 8) en espacio de imagen,
+                   *    escalada con las dimensiones reales del frame recibidas del servidor.
+                   *    Mucho más precisa que usar el "centro" (promedio de 21 puntos).
+                   *
+                   * 3. Fallback    – center con dimensiones correctas (si index_tip no está).
+                   */
+                  let leftPercent, topPercent, posSource;
+
+                  if (hand.screen_pos) {
+                    // Calibrado: el backend emite coordenadas NORMALIZADAS (0-1).
+                    // Multiplicamos por 100 → porcentaje CSS, válido en cualquier resolución.
+                    leftPercent = hand.screen_pos.x * 100;
+                    topPercent  = hand.screen_pos.y * 100;
+                    posSource = 'CAL';
+                  } else {
+                    // Sin calibrar: usar index_tip (o center) con dimensiones reales
+                    const fw = frameDimensions.w || 640;
+                    const fh = frameDimensions.h || 480;
+                    let px, py;
+                    if (hand.index_tip) {
+                      px = hand.index_tip.x;
+                      py = hand.index_tip.y;
+                      posSource = 'TIP';
+                    } else if (hand.center && typeof hand.center === 'object') {
+                      px = hand.center.x || 0;
+                      py = hand.center.y || 0;
+                      posSource = 'CTR';
+                    } else if (Array.isArray(hand.center)) {
+                      px = hand.center[0] || 0;
+                      py = hand.center[1] || 0;
+                      posSource = 'CTR';
+                    } else {
+                      px = 0; py = 0; posSource = '???';
                     }
+                    leftPercent = (px / fw) * 100;
+                    topPercent  = (py / fh) * 100;
                   }
-                  
-                  // Calcular porcentaje para toda la pantalla (640x480 es la resolución de captura)
-                  const leftPercent = (handX / 640) * 100;
-                  const topPercent = (handY / 480) * 100;
-                  
+
                   return (
-                    <div 
+                    <div
                       key={idx}
                       className={`projection-hand ${hand.handedness?.toLowerCase() || 'right'} ${hand.gesture === 'closed_fist' ? 'grabbing' : ''}`}
                       style={{
                         left: `${leftPercent}%`,
-                        top: `${topPercent}%`
+                        top: `${topPercent}%`,
                       }}
                     >
                       <div className="hand-cursor">
@@ -440,9 +568,9 @@ function App() {
                       <div className="hand-label">
                         {hand.handedness === 'Left' ? '👈 Izq' : '👉 Der'}
                       </div>
-                      {/* Debug info */}
+                      {/* Debug: source + coords */}
                       <div className="hand-debug">
-                        ({Math.round(handX)}, {Math.round(handY)})
+                        [{posSource}] ({Math.round(leftPercent)}%, {Math.round(topPercent)}%)
                       </div>
                     </div>
                   );
@@ -459,6 +587,17 @@ function App() {
                 {/* Información de estado */}
                 <div className="projection-info">
                   <span>🖐️ Manos: {hands.length}</span>
+                  <span
+                    className={`calib-badge ${calibrationData?.is_calibrated ? 'calib-ok' : 'calib-no'}`}
+                    title={calibrationData?.is_calibrated
+                      ? 'Calibración de pantalla activa – posiciones corregidas por homografía'
+                      : 'Sin calibrar – usa el botón Calibrar para mejorar precisión'}
+                  >
+                    {calibrationData?.is_calibrated ? '🎯 Calibrado' : '⚠️ Sin calibrar'}
+                  </span>
+                  <span className="frame-dims-badge">
+                    {frameDimensions.w}×{frameDimensions.h}
+                  </span>
                   {interactionData?.selected_count > 0 && (
                     <span className="selected-info">
                       ✅ Seleccionados: {interactionData.selected_count}
@@ -510,7 +649,7 @@ function App() {
         <AnimatePresence>
           {showCalibration && (
             <>
-              <motion.div 
+              <motion.div
                 className="calibration-overlay fullscreen-calibration-overlay"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -518,16 +657,17 @@ function App() {
                 onClick={() => setShowCalibration(false)}
               />
               <motion.div
-                className="fullscreen-calibration-panel"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
+                style={{ position: 'fixed', top: '50%', left: '50%', zIndex: 201 }}
+                initial={{ opacity: 0, scale: 0.9, x: '-50%', y: '-50%' }}
+                animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
+                exit={{ opacity: 0, scale: 0.9, x: '-50%', y: '-50%' }}
               >
-                <CalibrationPanel 
+                <CalibrationPanel
                   ws={wsRef.current}
                   isConnected={connected}
                   calibrationData={calibrationData}
                   frameRgb={frameRgb}
+                  frameDimensions={frameDimensions}
                   onClose={() => setShowCalibration(false)}
                 />
               </motion.div>
@@ -843,13 +983,21 @@ function App() {
               >
                 {config.pointcloudEnabled ? '✅' : '❌'} Nube 3D
               </button>
-              <button 
+              <button
                 className={`toggle-btn ${config.interactionsEnabled ? 'active' : ''}`}
                 onClick={toggleInteractions}
               >
                 {config.interactionsEnabled ? '✅' : '❌'} Interacciones
               </button>
-              <button 
+              <button
+                className={`toggle-btn mouse-control-btn ${config.mouseControlEnabled ? 'active' : ''} ${!config.mouseControlAvailable ? 'disabled' : ''}`}
+                onClick={toggleMouseControl}
+                disabled={!config.mouseControlAvailable}
+                title={config.mouseControlAvailable ? 'Controla el mouse del sistema con gestos' : 'pyautogui no instalado'}
+              >
+                {config.mouseControlEnabled ? '🖱️' : '🚫'} Mouse {config.mouseControlEnabled ? '✅' : '❌'}
+              </button>
+              <button
                 className={`toggle-btn calibration-btn-main ${calibrationData.is_calibrated ? 'calibrated' : ''}`}
                 onClick={() => setShowCalibration(true)}
               >
@@ -988,23 +1136,31 @@ function App() {
       <AnimatePresence>
         {showCalibration && (
           <>
-            <motion.div 
+            <motion.div
               className="calibration-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowCalibration(false)}
             />
+            {/*
+              IMPORTANTE: position:fixed en .calibration-panel rompería si está dentro de un
+              ancestor con transform (Framer Motion aplica transforms). Por eso ponemos
+              el posicionamiento fixed aquí en el motion.div y usamos x/y de Framer Motion
+              para el translate(-50%,-50%), así todos los transforms se componen en uno solo.
+            */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              style={{ position: 'fixed', top: '50%', left: '50%', zIndex: 1000 }}
+              initial={{ opacity: 0, scale: 0.9, x: '-50%', y: '-50%' }}
+              animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
+              exit={{ opacity: 0, scale: 0.9, x: '-50%', y: '-50%' }}
             >
-              <CalibrationPanel 
+              <CalibrationPanel
                 ws={wsRef.current}
                 isConnected={connected}
                 calibrationData={calibrationData}
                 frameRgb={frameRgb}
+                frameDimensions={frameDimensions}
                 onClose={() => setShowCalibration(false)}
               />
             </motion.div>
