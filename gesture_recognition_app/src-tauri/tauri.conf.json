@@ -26,7 +26,8 @@
         "minimize": true,
         "unmaximize": true,
         "unminimize": true,
-        "startDragging": true
+        "startDragging": true,
+        "setFullscreen": true
       }
     },
     "bundle": {
