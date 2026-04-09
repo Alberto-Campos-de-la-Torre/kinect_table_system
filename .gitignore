@@ -68,6 +68,8 @@ models/*.h5
 models/*.pkl
 models/*.onnx
 models/*.tflite
+*.pt
+*.pth
 *.task
 hand_landmarker.task
 **/hand_landmarker.task
